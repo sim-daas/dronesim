@@ -1,5 +1,5 @@
 # ~/.config/tmuxinator/px4_ros2_gazebo.yml
-name: px4_ros2_gazebo
+name: ros2_mav
 root: /root
 
 windows:

@@ -1,0 +1,15 @@
+# ~/.config/tmuxinator/test_mav.yml
+name: test_mav
+root: /root
+
+windows:
+  - PX4_Autopilot:
+      root: /root/PX4-Autopilot
+      layout: even-vertical
+      panes:
+        - PX4_SYS_AUTOSTART=4002 PX4_GZ_MODEL_POSE="268.08,-128.22,3.86,0.00,0,-0.7" PX4_GZ_MODEL=x500_depth ./build/px4_sitl_default/bin/px4
+  - MAVSDK_Control:
+      root: /root/dronesim/MAVSDK-Python/examples
+      layout: even-vertical
+      panes:
+        - sleep 4 && python3 goto.py
