@@ -9,6 +9,8 @@ from mavsdk.offboard import (PositionNedYaw, VelocityNedYaw, OffboardError)
 async def run():
     drone = System()
     await drone.connect(system_address="udp://:14540")
+    await drone.param.set_param_float("MPC_XY_CRUISE", 0.1)
+    await drone.param.set_param_float("MPC_XY_VEL_MAX", 2)
 
     print("Waiting for drone to connect...")
     async for state in drone.core.connection_state():
@@ -44,34 +46,39 @@ async def run():
 
     asyncio.ensure_future(print_z_velocity(drone))
 
+    vel = 0.1
     print("-- Go 0m North, 0m East, -10m Down within local coordinate system")
     await drone.offboard.set_position_velocity_ned(
         PositionNedYaw(0.0, 0.0, -10.0, 0.0),
-        VelocityNedYaw(0.0, 0.0, -0.1, 0.0))
+        VelocityNedYaw(0.0, 0.0, vel, 0.0))
     await asyncio.sleep(10)
 
     print("-- Go 10m North, 0m East, 0m Down within local coordinate system")
     await drone.offboard.set_position_velocity_ned(
         PositionNedYaw(10.0, 0.0, -10.0, 0.0),
-        VelocityNedYaw(0.1, 0.0, 0.0, 0.0))
+        VelocityNedYaw(vel, 0.0, 0.0, 0.0))
     await asyncio.sleep(10)
 
     await drone.offboard.set_position_velocity_ned(
         PositionNedYaw(10.0, 10.0, -10.0, 0.0),
-        VelocityNedYaw(0, 0.1, 0.0, 0.0))
+        VelocityNedYaw(0, vel, 0.0, 0.0))
     await asyncio.sleep(10)
 
     await drone.offboard.set_position_velocity_ned(
         PositionNedYaw(0.0, 10.0, -10.0, 0.0),
-        VelocityNedYaw(0.1, 0.0, 0.0, 0.0))
+        VelocityNedYaw(vel, vel, 0.0, 0.0))
     await asyncio.sleep(10)
 
     await drone.offboard.set_position_velocity_ned(
         PositionNedYaw(0.0, 0.0, -10.0, 0.0),
-        VelocityNedYaw(0, 0.1, 0.0, 0.0))
+        VelocityNedYaw(0, vel, 0.0, 0.0))
     await asyncio.sleep(10)
 
 
+    await drone.offboard.set_position_velocity_ned(
+        PositionNedYaw(0.0, 0.0, 0.0, 0.0),
+        VelocityNedYaw(0, vel, vel, 0.0))
+    await asyncio.sleep(10)
     await drone.action.land()
 
     print("-- Stopping offboard")
