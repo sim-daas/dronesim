@@ -12,4 +12,22 @@ windows:
       root: /root/dronesim/MAVSDK-Python/examples
       layout: even-vertical
       panes:
-        - sleep 4 && python3 goto.py
+        - sleep 4 && python3 offboard_position_velocity_ned.py
+  - camera-bridge:
+      root: /root/dronesim/PX4-ROS2-Gazebo-YOLOv8
+      layout: even-vertical
+      panes:
+        - sleep 6 && ros2 run ros_gz_image image_bridge /camera
+  - YOLOv8:
+      root: /root/dronesim/PX4-ROS2-Gazebo-YOLOv8
+      layout: even-vertical
+      panes:
+        - sleep 6 && python3 uav_camera_det.py  
+
+
+
+
+
+
+
+

@@ -1,42 +1,74 @@
 import asyncio
 import random
 from mavsdk import System
+from mavsdk.offboard import PositionNedYaw
+from mavsdk.telemetry import LandedState
 import KeyPressModule as kp
 
-# Test set of manual inputs. Format: [roll, pitch, throttle, yaw]
+# Test set of manual inputs. Format: [north, east, down, yaw]
 
 kp.init()
 drone = System()
 
-roll, pitch, throttle, yaw = 0, 0, 0.5, 0
+north, east, down, yaw = 0, 0, 0, 0
 async def getKeyboardInput(my_drone):
-    global roll, pitch, throttle, yaw
+    global north, east, down, yaw
     while True:
-        roll, pitch, throttle, yaw = 0, 0, 0.5, 0
-        value = 0.5
+        # Reset values for this iteration
+        north_change, east_change, down_change, yaw_change = 0, 0, 0, 0
+        value = 0.1
+        
+        # Horizontal movement (east/west)
         if kp.getKey("LEFT"):
-            pitch = -value
+            east_change = -value
         elif kp.getKey("RIGHT"):
-            pitch = value
+            east_change = value
+            
+        # Forward/backward movement (north/south)
         if kp.getKey("UP"):
-            roll = value
+            north_change = value
         elif kp.getKey("DOWN"):
-            roll = -value
+            north_change = -value
+            
+        # Altitude control (down is positive in NED)
         if kp.getKey("w"):
-            throttle = 1
+            down_change = -value  # Move up
         elif kp.getKey("s"):
-            throttle = 0
+            down_change = value   # Move down
+            
+        # Rotation control (yaw)
         if kp.getKey("a"):
-            yaw = -value
+            yaw_change = -2
         elif kp.getKey("d"):
-            yaw = value
-        elif kp.getKey("i"):
+            yaw_change = 2
+            
+        # Update position values
+        north += north_change
+        east += east_change
+        down += down_change
+        yaw += yaw_change
+        
+        # Special commands
+        if kp.getKey("i"):
             asyncio.ensure_future(print_flight_mode(my_drone))
-        elif kp.getKey("r") and my_drone.telemetry.landed_state():
-            await my_drone.action.arm()
-        elif kp.getKey("l") and my_drone.telemetry.in_air():
-            await my_drone.action.land()
-        # print(roll, pitch, throttle, yaw)
+        elif kp.getKey("r"):
+            # Try to arm the drone
+            print("Arming drone...")
+            try:
+                await my_drone.action.arm()
+                print("Drone armed successfully!")
+            except Exception as e:
+                print(f"Arming failed: {e}")
+        elif kp.getKey("l"):
+            # Try to land the drone
+            print("Landing drone...")
+            try:
+                await my_drone.action.land()
+                north, east, down, yaw = 0, 0, 0, 0
+                print("Landing command sent!")
+            except Exception as e:
+                print(f"Landing failed: {e}")
+        
         await asyncio.sleep(0.1)
 
 async def print_flight_mode(my_drone):
@@ -45,11 +77,36 @@ async def print_flight_mode(my_drone):
         # return flight_mode
 
 async def manual_control_drone(my_drone):
-    global roll, pitch, throttle, yaw
+    global north, east, down, yaw
+    
+    # Set the initial setpoint before starting offboard mode
+    print("Setting initial setpoint...")
+    await my_drone.offboard.set_position_ned(PositionNedYaw(0, 0, 0, 0))
+    
+    # Start offboard mode
+    print("Starting offboard mode...")
+    try:
+        await my_drone.offboard.start()
+        print("Offboard mode started!")
+    except Exception as e:
+        print(f"Starting offboard mode failed: {e}")
+        print("Trying to arm the drone first...")
+        try:
+            await my_drone.action.arm()
+            await asyncio.sleep(2)
+            await my_drone.offboard.start()
+            print("Offboard mode started after arming!")
+        except Exception as e2:
+            print(f"Arming and starting offboard mode failed: {e2}")
+    
+    # Now we can send position commands
     while True:
-        print(roll, pitch, throttle, yaw)
-        await my_drone.manual_control.set_manual_control_input(roll, pitch, throttle, yaw)
-        await asyncio.sleep(0.1)
+        print(f"Sending position: North={north}, East={east}, Down={down}, Yaw={yaw}")
+        try:
+            await my_drone.offboard.set_position_ned(PositionNedYaw(north, east, down, yaw))
+        except Exception as e:
+            print(f"Failed to set position: {e}")
+        await asyncio.sleep(0.2)
 
 async def run_drone():
     asyncio.ensure_future(getKeyboardInput(drone))
@@ -60,6 +117,19 @@ async def run_drone():
         if state.is_connected:
             print(f"-- Connected to drone!")
             break
+    
+    # Check and print the drone status to help diagnose issues
+    print("Checking drone status...")
+    async for health in drone.telemetry.health():
+        print(f"Health: {health}")
+        break
+    
+    # Check if drone is ready to arm
+    print("Checking if drone is ready to arm...")
+    async for is_armable in drone.telemetry.health_all_ok():
+        print(f"Is drone ready to arm: {is_armable}")
+        break
+    
     # Checking if Global Position Estimate is ok
     async for health in drone.telemetry.health():
         if health.is_global_position_ok and health.is_home_position_ok:
@@ -69,7 +139,7 @@ async def run_drone():
 
 
 async def run():
-    global roll, pitch, throttle, yaw
+    global north, east, down, yaw
     """Main function to connect to the drone and input manual controls"""
     await asyncio.gather(run_drone())
 

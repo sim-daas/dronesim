@@ -9,7 +9,7 @@ from mavsdk.offboard import (PositionNedYaw, VelocityNedYaw, OffboardError)
 async def run():
     drone = System()
     await drone.connect(system_address="udp://:14540")
-    await drone.param.set_param_float("MPC_XY_CRUISE", 0.1)
+#    await drone.param.set_param_float("MPC_XY_CRUISE", 0.1)
     await drone.param.set_param_float("MPC_XY_VEL_MAX", 2)
 
     print("Waiting for drone to connect...")
@@ -29,7 +29,8 @@ async def run():
 
     print("-- Setting initial setpoint")
     await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, 0.0, 0.0))
-
+    
+    await drone.action.takeoff()
     print("-- Starting offboard")
     try:
         await drone.offboard.start()
@@ -46,7 +47,7 @@ async def run():
 
     asyncio.ensure_future(print_z_velocity(drone))
 
-    vel = 0.1
+    vel = 2
     print("-- Go 0m North, 0m East, -10m Down within local coordinate system")
     await drone.offboard.set_position_velocity_ned(
         PositionNedYaw(0.0, 0.0, -10.0, 0.0),

@@ -19,7 +19,8 @@ async def run():
 
     drone = System()
     await drone.connect(system_address="udp://:14540")
-
+    await drone.param.set_param_float("MPC_XY_VEL_MAX", 1.5)
+    
     print("Waiting for drone to connect...")
     async for state in drone.core.connection_state():
         if state.is_connected:
