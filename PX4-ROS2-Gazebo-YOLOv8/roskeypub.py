@@ -43,12 +43,16 @@ class KeyboardPublisher(Node):
             if key_input[key_code]:
                 keys.append(key_name)
 
-        # Convert list to comma-separated string and publish
+        # Convert list to comma-separated string and publish.
+        # This will send an empty string if no keys are pressed, telling
+        # the subscriber to stop movement.
+        msg = String()
+        msg.data = ",".join(keys)
+        self.publisher_.publish(msg)
+
+        # Only log when keys are actually being pressed to avoid spam.
         if keys:
-            msg = String()
-            msg.data = ",".join(keys)
-            self.publisher_.publish(msg)
-            self.get_logger().info(f"Published: {msg.data}")
+            self.get_logger().info(f"Published: '{msg.data}' (type: {type(msg.data)})")
 
 def main(args=None):
     rclpy.init(args=args)
