@@ -1,9 +1,0 @@
-source;share/skysentry/hook/pythonpath.ps1
-source;share/skysentry/hook/pythonpath.dsv
-source;share/skysentry/hook/pythonpath.sh
-source;share/skysentry/hook/ament_prefix_path.ps1
-source;share/skysentry/hook/ament_prefix_path.dsv
-source;share/skysentry/hook/ament_prefix_path.sh
-source;../../build/skysentry/share/skysentry/hook/pythonpath_develop.ps1
-source;../../build/skysentry/share/skysentry/hook/pythonpath_develop.dsv
-source;../../build/skysentry/share/skysentry/hook/pythonpath_develop.sh
