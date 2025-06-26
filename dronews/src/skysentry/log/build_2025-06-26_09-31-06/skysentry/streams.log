@@ -1,0 +1,28 @@
+[0.370s] Invoking command in '/root/dronesim/dronews/src/skysentry/build/skysentry': PYTHONPATH=/root/dronesim/dronews/src/skysentry/build/skysentry/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/dronesim/dronews/src/skysentry/install/skysentry/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated setup.py develop --editable --build-directory /root/dronesim/dronews/src/skysentry/build/skysentry/build --no-deps symlink_data
+[0.516s] running develop
+[0.516s] /usr/lib/python3/dist-packages/setuptools/command/easy_install.py:158: EasyInstallDeprecationWarning: easy_install command is deprecated. Use build and pip and other standards-based tools.
+[0.516s]   warnings.warn(
+[0.588s] running egg_info
+[0.588s] creating skysentry.egg-info
+[0.588s] writing skysentry.egg-info/PKG-INFO
+[0.588s] writing dependency_links to skysentry.egg-info/dependency_links.txt
+[0.590s] writing requirements to skysentry.egg-info/requires.txt
+[0.591s] writing top-level names to skysentry.egg-info/top_level.txt
+[0.591s] writing manifest file 'skysentry.egg-info/SOURCES.txt'
+[0.591s] reading manifest file 'skysentry.egg-info/SOURCES.txt'
+[0.591s] writing manifest file 'skysentry.egg-info/SOURCES.txt'
+[0.592s] running build_ext
+[0.593s] Creating /root/dronesim/dronews/src/skysentry/install/skysentry/lib/python3.10/site-packages/skysentry.egg-link (link to .)
+[0.594s] Installing roskeypub.py script to /root/dronesim/dronews/src/skysentry/install/skysentry/lib/skysentry
+[0.594s] Installing mavlinkros.py script to /root/dronesim/dronews/src/skysentry/install/skysentry/lib/skysentry
+[0.594s] 
+[0.594s] Installed /root/dronesim/dronews/src/skysentry/build/skysentry
+[0.595s] running symlink_data
+[0.595s] creating /root/dronesim/dronews/src/skysentry/install/skysentry/share/ament_index
+[0.595s] creating /root/dronesim/dronews/src/skysentry/install/skysentry/share/ament_index/resource_index
+[0.595s] creating /root/dronesim/dronews/src/skysentry/install/skysentry/share/ament_index/resource_index/packages
+[0.595s] symbolically linking /root/dronesim/dronews/src/skysentry/build/skysentry/resource/skysentry -> /root/dronesim/dronews/src/skysentry/install/skysentry/share/ament_index/resource_index/packages
+[0.595s] symbolically linking /root/dronesim/dronews/src/skysentry/build/skysentry/package.xml -> /root/dronesim/dronews/src/skysentry/install/skysentry/share/skysentry
+[0.595s] creating /root/dronesim/dronews/src/skysentry/install/skysentry/share/skysentry/launch
+[0.595s] symbolically linking /root/dronesim/dronews/src/skysentry/build/skysentry/launch/dronelaunch.launch.py -> /root/dronesim/dronews/src/skysentry/install/skysentry/share/skysentry/launch
+[0.616s] Invoked command in '/root/dronesim/dronews/src/skysentry/build/skysentry' returned '0': PYTHONPATH=/root/dronesim/dronews/src/skysentry/build/skysentry/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/dronesim/dronews/src/skysentry/install/skysentry/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated setup.py develop --editable --build-directory /root/dronesim/dronews/src/skysentry/build/skysentry/build --no-deps symlink_data

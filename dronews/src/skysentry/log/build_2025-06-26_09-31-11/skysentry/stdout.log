@@ -1,0 +1,15 @@
+running develop
+running egg_info
+writing skysentry.egg-info/PKG-INFO
+writing dependency_links to skysentry.egg-info/dependency_links.txt
+writing requirements to skysentry.egg-info/requires.txt
+writing top-level names to skysentry.egg-info/top_level.txt
+reading manifest file 'skysentry.egg-info/SOURCES.txt'
+writing manifest file 'skysentry.egg-info/SOURCES.txt'
+running build_ext
+Creating /root/dronesim/dronews/src/skysentry/install/skysentry/lib/python3.10/site-packages/skysentry.egg-link (link to .)
+Installing roskeypub.py script to /root/dronesim/dronews/src/skysentry/install/skysentry/lib/skysentry
+Installing mavlinkros.py script to /root/dronesim/dronews/src/skysentry/install/skysentry/lib/skysentry
+
+Installed /root/dronesim/dronews/src/skysentry/build/skysentry
+running symlink_data

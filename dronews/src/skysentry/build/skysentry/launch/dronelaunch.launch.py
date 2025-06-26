@@ -1,0 +1,1 @@
+/root/dronesim/dronews/src/skysentry/launch/dronelaunch.launch.py
