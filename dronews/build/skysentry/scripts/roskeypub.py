@@ -1,1 +1,0 @@
-/root/dronesim/dronews/src/skysentry/scripts/roskeypub.py
