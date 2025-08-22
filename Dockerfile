@@ -72,7 +72,6 @@ RUN echo "export PATH=\$PATH:/root/.local/bin" >> /root/.bashrc
 
 # Copy models and worlds from local repository
 RUN mkdir -p /root/.gz/fuel/fuel.ignitionrobotics.org/openrobotics/models/
-COPY . /root/PX4-ROS2-Gazebo-YOLOv8
 COPY models/. /root/.gz/models/
 COPY models_docker/. /root/.gz/fuel/fuel.ignitionrobotics.org/openrobotics/models/
-COPY worlds/default_docker.sdf /root/PX4-Autopilot/Tools/simulation/gz/worlds/default.sdf
+COPY worlds/default_docker.sdf /PX4-Autopilot/Tools/simulation/gz/worlds/default.sdf
