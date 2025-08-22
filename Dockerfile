@@ -39,7 +39,7 @@ RUN bash ./PX4-Autopilot/Tools/setup/ubuntu.sh && \
 
 # Setup Micro XRCE-DDS Agent & Client
 RUN cd /root && \
-    git clone --branch 2.4.3 https://github.com/eProsima/Micro-XRCE-DDS-Agent.git && \
+    git clone --branch v2.4.3 https://github.com/eProsima/Micro-XRCE-DDS-Agent.git && \
     cd Micro-XRCE-DDS-Agent && \
     mkdir build && \
     cd build && \
