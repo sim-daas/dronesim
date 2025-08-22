@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Set image name and container name from arguments or use defaults
-IMAGE="${1:-dronebase:v1}"
+IMAGE="${1:-px4-dronesim}"
 CONTAINER_NAME="${2:-dronebase_dev}"
 
 # Use third argument as host repo path, or default to current directory
