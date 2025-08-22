@@ -25,7 +25,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     tmux \
     ruby \
-    tmuxinator
+    tmuxinator \
+    ros-humble-ros-gz
 
 # Install PX4
 RUN cd /root && \
@@ -61,20 +62,8 @@ RUN pip3 install \
     opencv-python \
     ultralytics
 
-RUN apt-get install -y ros-humble-ros-gz
-
 # Related to mismatch between numpy 2.x and numpy 1.x
-RUN pip3 uninstall -y numpy
-
-# Copy models and worlds from local repository
-RUN mkdir -p /root/.gz/fuel/fuel.ignitionrobotics.org/openrobotics/models/
-COPY . /root/PX4-ROS2-Gazebo-YOLOv8
-COPY models/. /root/.gz/models/
-COPY models_docker/. /root/.gz/fuel/fuel.ignitionrobotics.org/openrobotics/models/
-COPY worlds/default_docker.sdf /root/PX4-Autopilot/Tools/simulation/gz/worlds/default.sdf
-
-# Modify camera angle
-RUN sed -i 's|<pose>.12 .03 .242 0 0 0</pose>|<pose>.15 .029 .21 0 0.7854 0</pose>|' /root/PX4-Autopilot/Tools/simulation/gz/models/x500_depth/model.sdf
+RUN pip3 install "numpy<2.0" --force-reinstall
 
 # Set up tmuxinator
 RUN echo "export PATH=\$PATH:/root/.local/bin" >> /root/.bashrc
