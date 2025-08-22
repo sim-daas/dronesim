@@ -29,9 +29,10 @@ RUN apt-get update && apt-get install -y \
     ros-humble-ros-gz
 
 # Install PX4
-RUN cd /root && \
-    git clone https://github.com/PX4/PX4-Autopilot.git --recursive && \
-    
+RUN git clone --depth 1 https://github.com/PX4/PX4-Autopilot.git && \
+    cd PX4-Autopilot && git submodule update --init --recursive
+
+# PX4 dependencies
 RUN bash ./PX4-Autopilot/Tools/setup/ubuntu.sh && \
     cd PX4-Autopilot && \
     make px4_sitl
