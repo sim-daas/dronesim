@@ -51,7 +51,7 @@ RUN cd /root && \
 # Build ROS 2 Workspace ws_sensor_combined
 RUN mkdir -p /root/dronews/src && \
     cd /root/dronews/src && \
-    git clone https://github.com/sim-daas/dronesim.git && \
+#    git clone https://github.com/sim-daas/dronesim.git && \
     echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc && \
     echo "source /root/dronews/install/setup.bash" >> /root/.bashrc && \
     echo "export GZ_SIM_RESOURCE_PATH=/root/.gz/models" >> /root/.bashrc && \
