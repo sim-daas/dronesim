@@ -25,8 +25,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     tmux \
     ruby \
-    tmuxinator \
-    ros-humble-ros-gzgarden
+    tmuxinator
 
 WORKDIR /root
 
