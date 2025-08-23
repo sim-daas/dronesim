@@ -26,7 +26,9 @@ RUN apt-get update && apt-get install -y \
     tmux \
     ruby \
     tmuxinator \
-    ros-humble-ros-gz
+    ros-humble-ros-gzgarden
+
+WORKDIR /root
 
 # Install PX4
 RUN git clone --depth 1 https://github.com/PX4/PX4-Autopilot.git && \
