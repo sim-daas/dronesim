@@ -22,3 +22,6 @@ RUN pip3 install "numpy<2.0" --force-reinstall
 
 # Set up tmuxinator
 RUN echo "export PATH=\$PATH:/root/.local/bin" >> /root/.bashrc
+
+# Enter bash
+CMD ["/bin/bash"]

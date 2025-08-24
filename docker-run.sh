@@ -24,6 +24,21 @@ else
     GPU_OPTS=""
 fi
 
+# Check if container exists
+if docker ps -a --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}\$"; then
+    # If running, exec into it
+    if docker ps --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}\$"; then
+        echo "Container '${CONTAINER_NAME}' is already running. Exec into it."
+        docker exec -it "${CONTAINER_NAME}" bash
+        exit 0
+    else
+        echo "Container '${CONTAINER_NAME}' exists but is stopped. Starting and attaching..."
+        docker start "${CONTAINER_NAME}"
+        docker exec -it "${CONTAINER_NAME}" bash
+        exit 0
+    fi
+fi
+
 # --privileged gives access to all host devices (USB, etc.)
 docker run -v "${HOST_REPO_PATH}:${CONTAINER_REPO_PATH}" \
     -it \
