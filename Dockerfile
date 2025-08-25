@@ -6,7 +6,7 @@ WORKDIR /root
 # Build ROS 2 Workspace ws_sensor_combined
 RUN mkdir -p /root/dronews/src && \
     cd /root/dronews/src && \
-#    git clone https://github.com/sim-daas/dronesim.git && \
+    #    git clone https://github.com/sim-daas/dronesim.git && \
     echo "source /root/dronews/install/setup.bash" >> /root/.bashrc && \
     /bin/bash -c "source /opt/ros/humble/setup.bash && cd /root/dronews && colcon build --symlink-install" && \
     /bin/bash -c "source /root/.bashrc"
@@ -19,9 +19,6 @@ RUN pip3 install \
 
 # Related to mismatch between numpy 2.x and numpy 1.x
 RUN pip3 install "numpy<2.0" --force-reinstall
-
-# Set up tmuxinator
-RUN echo "export PATH=\$PATH:/root/.local/bin" >> /root/.bashrc
 
 # Enter bash
 CMD ["/bin/bash"]
