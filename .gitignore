@@ -1,8 +1,3 @@
-PX4-ROS2-Gazebo-YOLOv8/yolov8n.pt
-dronews/install
-dronews/build
-dronews/log
-dronews/src/skysentry/test
-dronews/src/skysentry/install
-dronews/src/skysentry/log
-dronews/src/skysentry/build
+**/__pycache__/
+**/*.pyc
+**/test/
