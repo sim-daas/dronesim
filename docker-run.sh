@@ -17,7 +17,7 @@ XAUTH="${XAUTHORITY:-$HOME/.Xauthority}"
 
 # Check for NVIDIA GPU
 if command -v nvidia-smi &> /dev/null; then
-    GPU_OPTS="--runtime nvidia --gpus all \
+    GPU_OPTS="--gpus all \
         -e NVIDIA_VISIBLE_DEVICES=all \
         -e NVIDIA_DRIVER_CAPABILITIES=all"
 else

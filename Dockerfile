@@ -13,9 +13,6 @@ RUN mkdir -p /root/dronews/src && \
 
 # Install Python requirements. If you don't have gpu, uncomment next line -torch cpu installation-
 # RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-RUN pip3 install \
-    opencv-python \
-    ultralytics
 
 # Related to mismatch between numpy 2.x and numpy 1.x
 RUN pip3 install "numpy<2.0" --force-reinstall
