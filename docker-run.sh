@@ -40,7 +40,7 @@ if docker ps -a --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}\$"; then
 fi
 
 # --privileged gives access to all host devices (USB, etc.)
-docker run -v "${HOST_REPO_PATH}:${CONTAINER_REPO_PATH}" \
+DOCKER_RUN_CMD=(docker run -v "${HOST_REPO_PATH}:${CONTAINER_REPO_PATH}" \
     -it \
     --privileged \
     --net=host \
@@ -55,4 +55,12 @@ docker run -v "${HOST_REPO_PATH}:${CONTAINER_REPO_PATH}" \
     --name "${CONTAINER_NAME}" \
     ${GPU_OPTS} \
     "$@" \
-    "${IMAGE}"
+    "${IMAGE}")
+
+# Print the docker run command
+printf '\nDocker run command:\n'
+printf '%s ' "${DOCKER_RUN_CMD[@]}"
+printf '\n\n'
+
+# Run the command
+"${DOCKER_RUN_CMD[@]}"
