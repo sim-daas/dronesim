@@ -26,5 +26,7 @@ RUN echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> /root/.bashrc
 # Related to mismatch between numpy 2.x and numpy 1.x
 RUN pip3 install "numpy<2.0" --force-reinstall
 
+#RUN cp sim.yml /root/.config/tmuxinator/sim.yml
+
 # Enter bash
 CMD ["/bin/bash"]
