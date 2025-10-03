@@ -38,7 +38,9 @@ class DroneGCSDashboard(QMainWindow):
         
         # Mission process tracking
         self.mission_process = None
-        
+        self.home_coordinates = {'lat': 47.3977, 'lon': 8.5456, 'alt': 10.0}  # Default home position
+        self.reconnection_attempts = 0
+        self.max_reconnection_attempts = 3
         # Telemetry data
         self.telemetry_data = {
             'lat': 0.0, 'lon': 0.0, 'alt': 0.0,
@@ -469,17 +471,11 @@ class DroneGCSDashboard(QMainWindow):
         # Mission controls
         mission_controls = QVBoxLayout()
         
-        # Upload mission button
-        self.upload_mission_btn = QPushButton("Upload Mission")
-        self.upload_mission_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['info']}; min-height: 30px; }}")
-        self.upload_mission_btn.clicked.connect(self.upload_mission)
-        mission_controls.addWidget(self.upload_mission_btn)
-        
-        # Start mission button  
-        self.start_mission_btn = QPushButton("Start Mission")
-        self.start_mission_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['success']}; min-height: 30px; }}")
-        self.start_mission_btn.clicked.connect(self.start_mission)
-        mission_controls.addWidget(self.start_mission_btn)
+        # Execute mission button (combined upload and start)
+        self.execute_mission_btn = QPushButton("Execute Mission")
+        self.execute_mission_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['success']}; min-height: 30px; }}")
+        self.execute_mission_btn.clicked.connect(self.execute_mission)
+        mission_controls.addWidget(self.execute_mission_btn)
         
         # Test hardcoded mission button
         test_mission_btn = QPushButton("Test 5m Square Mission")
@@ -666,12 +662,40 @@ class DroneGCSDashboard(QMainWindow):
         # Set scene rect
         self.map_scene.setSceneRect(0, 0, width, height)
         
-        # Draw grid lines
+        # Draw grid lines (50 pixels = 20 meters)
         grid_pen = QPen(QColor(self.colors['divider']), 1)
         for i in range(0, width, 50):
             self.map_scene.addLine(i, 0, i, height, grid_pen)
         for i in range(0, height, 50):
             self.map_scene.addLine(0, i, width, i, grid_pen)
+            
+        # Add scale labels (every 100 pixels = 40m)
+        scale_pen = QPen(QColor(self.colors['secondary_text']), 1)
+        for i in range(0, width, 100):
+            meters_from_center = (i - width/2) / 2.5  # 2.5 pixels per meter
+            if i == width/2:  # Center line
+                label_text = "0m"
+            else:
+                label_text = f"{int(meters_from_center)}m"
+            
+            scale_label = QGraphicsTextItem(label_text)
+            scale_label.setPos(i - 10, height - 20)
+            scale_label.setDefaultTextColor(QColor(self.colors['secondary_text']))
+            scale_label.setFont(QFont("Arial", 7))
+            self.map_scene.addItem(scale_label)
+            
+        for i in range(0, height, 100):
+            meters_from_center = (height/2 - i) / 2.5  # 2.5 pixels per meter
+            if i == height/2:  # Center line
+                label_text = "0m"
+            else:
+                label_text = f"{int(meters_from_center)}m"
+            
+            scale_label = QGraphicsTextItem(label_text)
+            scale_label.setPos(5, i - 10)
+            scale_label.setDefaultTextColor(QColor(self.colors['secondary_text']))
+            scale_label.setFont(QFont("Arial", 7))
+            self.map_scene.addItem(scale_label)
             
         # Draw waypoints
         for i, wp in enumerate(self.waypoints):
@@ -708,28 +732,49 @@ class DroneGCSDashboard(QMainWindow):
             self.map_scene.addItem(drone_label)
             
     def lat_lon_to_pixels(self, lat, lon):
-        # Improved conversion: each 50-pixel grid square = 10m x 10m
-        # At equator: 1 degree ≈ 111,320m, so 10m ≈ 0.00009 degrees
+        # Convert GPS coordinates to pixels with 20m grid squares
+        # Each 50-pixel grid square represents 20m x 20m in real world
         width = 600
         height = 400
         
-        # Scale factor: 50 pixels = 10m, so 5 pixels per meter
-        # 10m = ~0.00009 degrees, so scale = 50 pixels / 0.00009 degrees ≈ 555,556
-        scale_factor = 555556  # pixels per degree (makes 50px = ~10m)
+        # Simplified conversion: 1 degree ≈ 111,320 meters
+        # For small distances, we can use approximate conversion
+        # At latitude ~47°: 1 degree lat ≈ 111,320m, 1 degree lon ≈ 75,000m
         
-        x = width/2 + (lon - self.map_center['lon']) * scale_factor
-        y = height/2 - (lat - self.map_center['lat']) * scale_factor
+        # Convert GPS differences to approximate meters
+        lat_diff_m = (lat - self.map_center['lat']) * 111320  # meters per degree latitude
+        lon_diff_m = (lon - self.map_center['lon']) * 111320 * math.cos(math.radians(47.4))  # ~75,000m per degree
+        
+        # Scale: 2.5 pixels per meter (50 pixels = 20 meters)
+        pixels_per_meter = 2.5
+        x = width/2 + lon_diff_m * pixels_per_meter
+        y = height/2 - lat_diff_m * pixels_per_meter  # Negative because screen Y increases downward
         
         return int(x), int(y)
         
     def pixels_to_lat_lon(self, x, y):
-        # Convert pixels back to lat/lon using same scale
+        # Convert pixels back to GPS coordinates  
+        # For simulation, use much smaller GPS coordinate changes
         width = 600
         height = 400
-        scale_factor = 555556  # Same as above
         
-        lon = self.map_center['lon'] + (x - width/2) / scale_factor
-        lat = self.map_center['lat'] - (y - height/2) / scale_factor
+        # Calculate pixel differences from center
+        pixel_x_diff = x - width/2
+        pixel_y_diff = height/2 - y  # Negative because screen Y increases downward
+        
+        # Convert pixels to meters (2.5 pixels per meter)
+        pixels_per_meter = 2.5
+        meter_x_diff = pixel_x_diff / pixels_per_meter
+        meter_y_diff = pixel_y_diff / pixels_per_meter
+        
+        # Convert meters to GPS coordinates - use much smaller scale for simulation
+        # 1 degree ≈ 111320m, so 1m ≈ 0.000009 degrees latitude
+        # At lat 47.4°, 1m ≈ 0.000013 degrees longitude
+        degrees_per_meter_lat = 1.0 / 111320  # ~0.000009
+        degrees_per_meter_lon = 1.0 / (111320 * math.cos(math.radians(47.4)))  # ~0.000013
+        
+        lat = self.map_center['lat'] + meter_y_diff * degrees_per_meter_lat
+        lon = self.map_center['lon'] + meter_x_diff * degrees_per_meter_lon
         
         return lat, lon
     
@@ -828,9 +873,10 @@ class DroneGCSDashboard(QMainWindow):
         except Exception as e:
             self.log_message(f"Land failed: {str(e)}")
             
-    def upload_mission(self):
+    def execute_mission(self):
+        """Execute mission - combined upload and start with automatic interruption handling"""
         if not self.waypoints:
-            QMessageBox.warning(self, "Warning", "Add waypoints before uploading mission!")
+            QMessageBox.warning(self, "Warning", "Add waypoints before executing mission!")
             return
             
         # Disconnect dashboard from drone if connected (to avoid conflicts)
@@ -838,6 +884,14 @@ class DroneGCSDashboard(QMainWindow):
             self.log_message("Disconnecting dashboard to avoid conflicts with mission executor...")
             self.disconnect_mavlink()
             
+        # Store home coordinates from current drone position or use default
+        if self.drone_position['lat'] != 0 or self.drone_position['lon'] != 0:
+            self.home_coordinates = {
+                'lat': self.drone_position['lat'],
+                'lon': self.drone_position['lon'],
+                'alt': 10.0  # Safe altitude above home
+            }
+        
         # Execute mission using separate process
         self.execute_mission_process()
     
@@ -899,11 +953,11 @@ class DroneGCSDashboard(QMainWindow):
                 stdout, stderr = self.mission_process.communicate()
                 
                 if return_code == 0:
-                    self.log_message("✓ Mission process completed successfully")
-                    self.mission_status.setText("Mission completed!")
+                    self.log_message("✓ Mission process completed (interrupted or finished)")
+                    self.mission_status.setText("Mission completed - starting recovery...")
                 else:
                     self.log_message(f"✗ Mission process failed with code {return_code}")
-                    self.mission_status.setText("Mission failed!")
+                    self.mission_status.setText("Mission failed - starting recovery...")
                     
                 # Log any output
                 if stdout.strip():
@@ -916,81 +970,238 @@ class DroneGCSDashboard(QMainWindow):
                         
                 self.mission_process = None
                 
+                # Start recovery process: reconnect and return to home
+                self.start_recovery_process()
+                
         except Exception as e:
             self.log_message(f"Error monitoring mission process: {str(e)}")
             self.mission_status.setText("Mission monitoring failed!")
-            
-
-            
-    def start_mission(self):
-        """Start mission - only works if mission was uploaded via dashboard directly"""
-        if not self.connected:
-            QMessageBox.warning(self, "Warning", "Not connected to drone!")
+            # Still try recovery
+            self.start_recovery_process()
+    
+    def start_recovery_process(self):
+        """Start the recovery process after mission completion/interruption"""
+        self.log_message("🏠 Starting recovery process...")
+        self.mission_status.setText("Reconnecting for recovery...")
+        self.reconnection_attempts = 0
+        
+        # Start reconnection timer
+        QTimer.singleShot(2000, self.attempt_reconnection)  # Wait 2 seconds before reconnecting
+    
+    def attempt_reconnection(self):
+        """Attempt to reconnect to drone for recovery"""
+        if self.reconnection_attempts >= self.max_reconnection_attempts:
+            self.log_message("✗ Failed to reconnect after maximum attempts")
+            self.mission_status.setText("Recovery failed - manual intervention required")
+            QMessageBox.critical(
+                self, 
+                "Recovery Failed", 
+                "Failed to reconnect to drone after mission completion.\n"
+                "Please manually connect and check drone status."
+            )
             return
-        if not self.event_loop:
-            QMessageBox.critical(self, "Error", "Event loop not running. Connect to the drone first.")
-            return
             
-        # Check if there's a mission process running
-        if self.mission_process is not None:
-            QMessageBox.information(self, "Info", "Mission is already running via subprocess. Use 'Upload Mission' to launch missions.")
-            return
-            
-        self.log_message("Starting mission...")
-        self.mission_status.setText("Starting mission...")
-        asyncio.run_coroutine_threadsafe(self._start_mission_async(), self.event_loop)
-            
-    async def _start_mission_async(self):
+        self.reconnection_attempts += 1
+        self.log_message(f"Attempting reconnection {self.reconnection_attempts}/{self.max_reconnection_attempts}...")
+        
         try:
-            # Check if drone is armed and ready
-            if not self.telemetry_data.get('armed', False):
-                self.log_message("⚠️ Drone must be armed before starting mission")
-                QTimer.singleShot(0, lambda: QMessageBox.warning(
-                    self, "Mission Warning", "Drone must be armed before starting mission!"
-                ))
+            # Attempt reconnection
+            self.connect_mavlink()
+            
+            # Schedule check for successful connection
+            QTimer.singleShot(5000, self.check_reconnection_success)
+            
+        except Exception as e:
+            self.log_message(f"Reconnection attempt {self.reconnection_attempts} failed: {e}")
+            # Retry after delay
+            QTimer.singleShot(3000, self.attempt_reconnection)
+    
+    def check_reconnection_success(self):
+        """Check if reconnection was successful and proceed with recovery"""
+        if self.connected:
+            self.log_message("✓ Reconnection successful, starting return to home...")
+            self.mission_status.setText("Connected - returning to home...")
+            self.return_to_home_and_land()
+        else:
+            self.log_message(f"⚠ Reconnection attempt {self.reconnection_attempts} failed")
+            # Retry
+            QTimer.singleShot(1000, self.attempt_reconnection)
+    
+    def return_to_home_and_land(self):
+        """Send drone to home position and start landing sequence"""
+        if not self.connected or not self.event_loop:
+            self.log_message("✗ Cannot return to home - not connected")
+            self.mission_status.setText("Recovery failed - not connected")
+            return
+            
+        self.log_message(f"🏠 Commanding drone to return to home position...")
+        self.log_message(f"Home coordinates: {self.home_coordinates['lat']:.6f}, {self.home_coordinates['lon']:.6f}, {self.home_coordinates['alt']}m")
+        
+        # Send goto command to home position
+        asyncio.run_coroutine_threadsafe(self._goto_home_async(), self.event_loop)
+    
+    async def _goto_home_async(self):
+        """Send drone to home position using goto command"""
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                self.log_message(f"Goto home attempt {attempt + 1}/{max_retries}")
+                
+                # Use goto_location method with individual parameters
+                await self.drone.action.goto_location(
+                    self.home_coordinates['lat'],
+                    self.home_coordinates['lon'], 
+                    self.home_coordinates['alt'],
+                    0  # yaw angle
+                )
+                
+                self.log_message("✓ Goto home command sent")
+                
+                # Wait a moment for drone to start moving
+                await asyncio.sleep(3)
+                
+                # Monitor arrival at home position
+                await self.monitor_home_arrival()
+                return
+                
+            except Exception as e:
+                self.log_message(f"✗ Goto home attempt {attempt + 1} failed: {e}")
+                
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2)
+                    continue
+                
+                # All goto attempts failed, try RTL as fallback
+                self.log_message("Attempting RTL as fallback...")
+                for rtl_attempt in range(max_retries):
+                    try:
+                        await self.drone.action.return_to_launch()
+                        self.log_message("✓ RTL command sent as fallback")
+                        await asyncio.sleep(5)  # Wait for RTL
+                        QTimer.singleShot(0, self.launch_precision_landing)
+                        return
+                    except Exception as rtl_error:
+                        self.log_message(f"✗ RTL attempt {rtl_attempt + 1} failed: {rtl_error}")
+                        if rtl_attempt < max_retries - 1:
+                            await asyncio.sleep(2)
+                
+                # Both goto and RTL failed
+                QTimer.singleShot(0, lambda: self.show_manual_intervention_popup("Both Goto and RTL failed after retries"))
+    
+    async def monitor_home_arrival(self):
+        """Monitor drone arrival at home position"""
+        try:
+            self.log_message("Monitoring arrival at home position...")
+            arrival_timeout = 60  # 60 seconds timeout
+            start_time = time.time()
+            
+            while time.time() - start_time < arrival_timeout:
+                # Get current position
+                async for position in self.drone.telemetry.position():
+                    current_lat = position.latitude_deg
+                    current_lon = position.longitude_deg
+                    current_alt = position.relative_altitude_m
+                    
+                    # Calculate distance to home
+                    lat_diff = abs(current_lat - self.home_coordinates['lat'])
+                    lon_diff = abs(current_lon - self.home_coordinates['lon'])
+                    alt_diff = abs(current_alt - self.home_coordinates['alt'])
+                    
+                    # Check if close to home (within 2 meters)
+                    if lat_diff < 0.00002 and lon_diff < 0.00002 and alt_diff < 2.0:
+                        self.log_message("✓ Drone arrived at home position")
+                        QTimer.singleShot(0, self.launch_precision_landing)
+                        return
+                    
+                    break
+                
+                await asyncio.sleep(2)  # Check every 2 seconds
+            
+            # Timeout reached
+            self.log_message("⚠ Timeout waiting for home arrival, proceeding with landing anyway")
+            QTimer.singleShot(0, self.launch_precision_landing)
+            
+        except Exception as e:
+            self.log_message(f"Error monitoring home arrival: {e}")
+            QTimer.singleShot(0, self.launch_precision_landing)
+    
+    def launch_precision_landing(self):
+        """Launch the precision landing script"""
+        try:
+            self.log_message("🎯 Starting precision landing sequence...")
+            self.mission_status.setText("Starting precision landing...")
+            
+            # Get path to lander.py
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            lander_script = os.path.join(current_dir, "lander.py")
+            
+            if not os.path.exists(lander_script):
+                self.log_message("⚠ lander.py not found, attempting basic landing...")
+                # Fallback to basic landing
+                if self.connected and self.event_loop:
+                    asyncio.run_coroutine_threadsafe(self.drone.action.land(), self.event_loop)
+                    self.mission_status.setText("Basic landing initiated")
                 return
             
-            # Check flight mode - should be in a mode that supports missions
-            current_mode = self.telemetry_data.get('mode', 'UNKNOWN')
-            self.log_message(f"Current flight mode: {current_mode}")
+            # Launch lander.py
+            cmd = ["python3", lander_script]
+            lander_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
             
-            # Start the mission
-            await self.drone.mission.start_mission()
-            self.log_message("✓ Mission started successfully!")
+            self.log_message("✓ Precision landing script launched")
+            self.mission_status.setText("Precision landing in progress...")
             
-            # Start monitoring mission progress
-            asyncio.create_task(self.monitor_mission_progress())
-            
-            # Update UI in main thread
-            QTimer.singleShot(0, lambda: self.mission_status.setText("Mission running!"))
+            # Monitor lander process (optional)
+            QTimer.singleShot(1000, lambda: self.monitor_lander_process(lander_process))
             
         except Exception as e:
-            error_msg = f"Mission start failed: {str(e)}"
-            self.log_message(error_msg)
-            QTimer.singleShot(0, lambda: self.mission_status.setText("Mission start failed!"))
-            QTimer.singleShot(0, lambda: QMessageBox.critical(
-                self, "Mission Error", error_msg
-            ))
-            
-    async def monitor_mission_progress(self):
-        """Monitor mission progress and update status"""
+            self.log_message(f"✗ Failed to launch precision landing: {e}")
+            self.show_manual_intervention_popup("Precision landing launch failed")
+    
+    def monitor_lander_process(self, lander_process):
+        """Monitor the lander process"""
         try:
-            async for progress in self.drone.mission.mission_progress():
-                current = progress.current
-                total = progress.total
-                progress_text = f"Mission: {current}/{total}"
+            if lander_process.poll() is None:
+                # Still running
+                QTimer.singleShot(2000, lambda: self.monitor_lander_process(lander_process))
+            else:
+                # Process finished
+                return_code = lander_process.returncode
+                stdout, stderr = lander_process.communicate()
                 
-                self.log_message(f"Mission progress: waypoint {current}/{total}")
-                QTimer.singleShot(0, lambda: self.mission_status.setText(progress_text))
+                if return_code == 0:
+                    self.log_message("✓ Precision landing completed successfully")
+                    self.mission_status.setText("Mission and landing completed!")
+                else:
+                    self.log_message(f"⚠ Precision landing process returned code {return_code}")
+                    self.mission_status.setText("Landing completed with warnings")
                 
-                # Mission completed
-                if current >= total and total > 0:
-                    self.log_message("✓ Mission completed!")
-                    QTimer.singleShot(0, lambda: self.mission_status.setText("Mission completed!"))
-                    break
-                    
+                # Log lander output
+                if stdout.strip():
+                    for line in stdout.strip().split('\n'):
+                        self.log_message(f"Lander: {line}")
+                        
         except Exception as e:
-            self.log_message(f"Mission progress monitoring error: {str(e)}")
+            self.log_message(f"Error monitoring lander process: {e}")
+    
+    def show_manual_intervention_popup(self, error_message):
+        """Show popup requiring manual intervention"""
+        QMessageBox.critical(
+            self,
+            "Manual Intervention Required",
+            f"Automatic recovery failed: {error_message}\n\n"
+            "Please manually:\n"
+            "1. Check drone status\n"
+            "2. Land the drone safely\n"
+            "3. Reconnect to dashboard if needed"
+        )
+        self.mission_status.setText("Manual intervention required")
+
             
     def return_to_launch(self):
         if self.connected:
@@ -1074,7 +1285,8 @@ class DroneGCSDashboard(QMainWindow):
                     float('nan'),                       # camera_photo_interval_s
                     1.0,                                # acceptance_radius_m (tight for testing)
                     float('nan'),                       # yaw_deg
-                    float('nan')                        # camera_photo_distance_m
+                    float('nan'),                       # camera_photo_distance_m
+                    MissionItem.VehicleAction.NONE      # vehicle_action (required parameter)
                 )
                 mission_items.append(mission_item)
                 self.log_message(f"✓ Created waypoint {i+1} ({wp['name']}): {wp['lat']:.6f}, {wp['lon']:.6f}, {wp['alt']}m")
