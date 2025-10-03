@@ -13,6 +13,9 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPointF
 from PyQt5.QtGui import QFont, QPen, QBrush, QColor, QPainter
 from mavsdk import System
+import subprocess
+import json
+import os
 
 class DroneGCSDashboard(QMainWindow):
     def __init__(self):
@@ -32,6 +35,9 @@ class DroneGCSDashboard(QMainWindow):
         self.drone_position = {'lat': 0, 'lon': 0, 'alt': 0}
         self.map_center = {'lat': 47.3977, 'lon': 8.5456}  # Default: PX4 SITL Zurich location
         self.map_scale = 1000  # meters per pixel
+        
+        # Mission process tracking
+        self.mission_process = None
         
         # Telemetry data
         self.telemetry_data = {
@@ -702,21 +708,28 @@ class DroneGCSDashboard(QMainWindow):
             self.map_scene.addItem(drone_label)
             
     def lat_lon_to_pixels(self, lat, lon):
-        # Simple conversion for demonstration
+        # Improved conversion: each 50-pixel grid square = 10m x 10m
+        # At equator: 1 degree ≈ 111,320m, so 10m ≈ 0.00009 degrees
         width = 600
         height = 400
         
-        x = width/2 + (lon - self.map_center['lon']) * 10000
-        y = height/2 - (lat - self.map_center['lat']) * 10000
+        # Scale factor: 50 pixels = 10m, so 5 pixels per meter
+        # 10m = ~0.00009 degrees, so scale = 50 pixels / 0.00009 degrees ≈ 555,556
+        scale_factor = 555556  # pixels per degree (makes 50px = ~10m)
+        
+        x = width/2 + (lon - self.map_center['lon']) * scale_factor
+        y = height/2 - (lat - self.map_center['lat']) * scale_factor
         
         return int(x), int(y)
         
     def pixels_to_lat_lon(self, x, y):
+        # Convert pixels back to lat/lon using same scale
         width = 600
         height = 400
+        scale_factor = 555556  # Same as above
         
-        lon = self.map_center['lon'] + (x - width/2) / 10000
-        lat = self.map_center['lat'] - (y - height/2) / 10000
+        lon = self.map_center['lon'] + (x - width/2) / scale_factor
+        lat = self.map_center['lat'] - (y - height/2) / scale_factor
         
         return lat, lon
     
@@ -816,82 +829,111 @@ class DroneGCSDashboard(QMainWindow):
             self.log_message(f"Land failed: {str(e)}")
             
     def upload_mission(self):
-        if not self.connected:
-            QMessageBox.warning(self, "Warning", "Not connected to drone!")
-            return
         if not self.waypoints:
             QMessageBox.warning(self, "Warning", "Add waypoints before uploading mission!")
             return
-        if not self.event_loop:
-            QMessageBox.critical(self, "Error", "Event loop not running. Connect to the drone first.")
-            return
             
-        self.log_message("Uploading mission...")
-        self.mission_status.setText("Uploading mission...")
-        asyncio.run_coroutine_threadsafe(self._upload_mission_async(), self.event_loop)
+        # Disconnect dashboard from drone if connected (to avoid conflicts)
+        if self.connected:
+            self.log_message("Disconnecting dashboard to avoid conflicts with mission executor...")
+            self.disconnect_mavlink()
             
-    async def _upload_mission_async(self):
+        # Execute mission using separate process
+        self.execute_mission_process()
+    
+    def execute_mission_process(self):
+        """Execute mission using separate Python process"""
         try:
-            from mavsdk.mission import MissionItem, MissionPlan
+            # Prepare waypoints data as JSON
+            waypoints_json = json.dumps(self.waypoints)
+            speed = self.speed_entry.text()
             
-            # Clear any existing mission first
-            await self.drone.mission.clear_mission()
-            self.log_message("Cleared existing mission")
+            # Get the path to mission.py (same directory as dashboard.py)
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            mission_script = os.path.join(current_dir, "mission.py")
             
-            # Create mission items
-            mission_items = []
-            speed = float(self.speed_entry.text())
+            if not os.path.exists(mission_script):
+                QMessageBox.critical(self, "Error", f"Mission script not found: {mission_script}")
+                return
+                
+            # Launch mission.py as separate process
+            self.log_message("Launching mission executor process...")
+            self.log_message(f"Waypoints: {len(self.waypoints)} points")
+            self.log_message(f"Speed: {speed} m/s")
             
-            for i, wp in enumerate(self.waypoints):
-                # Create waypoint mission item
-                mission_item = MissionItem(
-                    wp['lat'],                          # latitude_deg
-                    wp['lon'],                          # longitude_deg  
-                    wp['alt'],                          # relative_altitude_m
-                    speed,                              # speed_m_s
-                    True,                               # is_fly_through
-                    float('nan'),                       # gimbal_pitch_deg
-                    float('nan'),                       # gimbal_yaw_deg
-                    MissionItem.CameraAction.NONE,     # camera_action
-                    float('nan'),                       # loiter_time_s
-                    float('nan'),                       # camera_photo_interval_s
-                    2.0,                                # acceptance_radius_m (important!)
-                    float('nan'),                       # yaw_deg
-                    float('nan')                        # camera_photo_distance_m
-                )
-                mission_items.append(mission_item)
-                self.log_message(f"Created waypoint {i+1}: {wp['lat']:.6f}, {wp['lon']:.6f}, {wp['alt']}m")
+            # Update mission status
+            self.mission_status.setText("Launching mission executor...")
             
-            # Create mission plan
-            mission_plan = MissionPlan(mission_items)
-            self.log_message(f"Created mission plan with {len(mission_items)} items")
+            # Start the mission process
+            cmd = ["python3", mission_script, waypoints_json, speed]
+            self.mission_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
             
-            # Upload mission to drone
-            self.log_message("Uploading mission to drone...")
-            await self.drone.mission.upload_mission(mission_plan)
-            self.log_message(f"✓ Mission uploaded successfully: {len(self.waypoints)} waypoints")
-            
-            # Verify upload by downloading mission
-            downloaded_mission = await self.drone.mission.download_mission()
-            self.log_message(f"✓ Mission verification: {len(downloaded_mission.mission_items)} items on drone")
-            
-            # Update UI in main thread
-            QTimer.singleShot(0, lambda: self.mission_status.setText(f"Mission uploaded! ({len(self.waypoints)} waypoints)"))
+            # Start monitoring the process
+            self.monitor_mission_process()
             
         except Exception as e:
-            error_msg = f"Mission upload failed: {str(e)}"
+            error_msg = f"Failed to execute mission process: {str(e)}"
             self.log_message(error_msg)
-            QTimer.singleShot(0, lambda: self.mission_status.setText("Upload failed!"))
-            QTimer.singleShot(0, lambda: QMessageBox.critical(
-                self, "Upload Error", error_msg
-            ))
+            QMessageBox.critical(self, "Mission Error", error_msg)
+            self.mission_status.setText("Mission launch failed!")
+    
+    def monitor_mission_process(self):
+        """Monitor the mission process output"""
+        try:
+            if self.mission_process is None:
+                return
+                
+            # Check if process is still running
+            if self.mission_process.poll() is None:
+                # Process is still running, schedule next check
+                QTimer.singleShot(1000, self.monitor_mission_process)
+                self.mission_status.setText("Mission executor running...")
+            else:
+                # Process has finished
+                return_code = self.mission_process.returncode
+                stdout, stderr = self.mission_process.communicate()
+                
+                if return_code == 0:
+                    self.log_message("✓ Mission process completed successfully")
+                    self.mission_status.setText("Mission completed!")
+                else:
+                    self.log_message(f"✗ Mission process failed with code {return_code}")
+                    self.mission_status.setText("Mission failed!")
+                    
+                # Log any output
+                if stdout.strip():
+                    for line in stdout.strip().split('\n'):
+                        self.log_message(f"Mission: {line}")
+                        
+                if stderr.strip():
+                    for line in stderr.strip().split('\n'):
+                        self.log_message(f"Mission Error: {line}")
+                        
+                self.mission_process = None
+                
+        except Exception as e:
+            self.log_message(f"Error monitoring mission process: {str(e)}")
+            self.mission_status.setText("Mission monitoring failed!")
+            
+
             
     def start_mission(self):
+        """Start mission - only works if mission was uploaded via dashboard directly"""
         if not self.connected:
             QMessageBox.warning(self, "Warning", "Not connected to drone!")
             return
         if not self.event_loop:
             QMessageBox.critical(self, "Error", "Event loop not running. Connect to the drone first.")
+            return
+            
+        # Check if there's a mission process running
+        if self.mission_process is not None:
+            QMessageBox.information(self, "Info", "Mission is already running via subprocess. Use 'Upload Mission' to launch missions.")
             return
             
         self.log_message("Starting mission...")
