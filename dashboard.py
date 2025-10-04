@@ -166,7 +166,7 @@ class DroneGCSDashboard(QMainWindow):
         top_layout = QHBoxLayout()
         self.setup_connection_panel(top_layout)
         self.setup_mission_control_panel(top_layout)
-        top_layout.addStretch()  # Push everything to the left
+        self.setup_top_telemetry_panel(top_layout)  # Add telemetry to top right
         main_layout.addLayout(top_layout)
         
         # Main content area
@@ -220,7 +220,7 @@ class DroneGCSDashboard(QMainWindow):
         
     def setup_mission_control_panel(self, parent):
         mission_frame = QFrame()
-        mission_frame.setFixedWidth(280)
+        mission_frame.setFixedWidth(560)  # Double the width
         parent.addWidget(mission_frame)
         
         layout = QVBoxLayout(mission_frame)
@@ -265,6 +265,49 @@ class DroneGCSDashboard(QMainWindow):
         button_layout.addWidget(self.rtl_btn)
         
         layout.addLayout(button_layout)
+    
+    def setup_top_telemetry_panel(self, parent):
+        telem_frame = QFrame()
+        telem_frame.setFixedWidth(300)
+        parent.addWidget(telem_frame)
+        
+        layout = QVBoxLayout(telem_frame)
+        layout.setContentsMargins(8, 5, 8, 5)
+        
+        # Title
+        title = QLabel("Live Telemetry")
+        title.setFont(QFont("Arial", 10, QFont.Bold))
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        
+        # Compact telemetry data display
+        data_widget = QWidget()
+        data_layout = QGridLayout(data_widget)
+        data_layout.setSpacing(4)
+        data_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Create compact telemetry labels (only essential data, no battery)
+        self.telem_labels = {}
+        telem_items = [
+            ('Lat:', 'lat'), ('Lon:', 'lon'), ('Alt:', 'alt'),
+            ('Speed:', 'ground_speed'), ('Armed:', 'armed'), ('Mode:', 'mode')
+        ]
+        
+        for i, (label_text, key) in enumerate(telem_items):
+            row = i // 2
+            col = (i % 2) * 2
+            
+            label = QLabel(label_text)
+            label.setFont(QFont("Arial", 8))
+            label.setStyleSheet(f"color: {self.colors['secondary_text']};")
+            data_layout.addWidget(label, row, col, Qt.AlignLeft)
+            
+            self.telem_labels[key] = QLabel("--")
+            self.telem_labels[key].setFont(QFont("Arial", 8, QFont.Bold))
+            self.telem_labels[key].setStyleSheet(f"color: {self.colors['success']};")
+            data_layout.addWidget(self.telem_labels[key], row, col + 1, Qt.AlignLeft)
+        
+        layout.addWidget(data_widget)
         
     def setup_map_panel(self, parent):
         map_frame = QFrame()
@@ -316,11 +359,6 @@ class DroneGCSDashboard(QMainWindow):
         tab_widget = QTabWidget()
         tab_widget.setFixedWidth(350)
         parent.addWidget(tab_widget)
-        
-        # Telemetry tab
-        telemetry_tab = QWidget()
-        tab_widget.addTab(telemetry_tab, "Telemetry")
-        self.setup_telemetry_panel(telemetry_tab)
         
         # Parameters tab
         parameters_tab = QWidget()
@@ -381,7 +419,7 @@ class DroneGCSDashboard(QMainWindow):
                 border: 1px solid {self.colors['divider']};
             }}
         """)
-        layout.addWidget(self.system_status)
+
    
     def setup_parameters_panel(self, parent):
         layout = QVBoxLayout(parent)
@@ -499,6 +537,25 @@ class DroneGCSDashboard(QMainWindow):
         mission_controls.addWidget(self.mission_status)
         
         layout.addLayout(mission_controls)
+        
+        # Add system console to mission tab
+        console_title = QLabel("System Console")
+        console_title.setFont(QFont("Arial", 10, QFont.Bold))
+        console_title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(console_title)
+        
+        self.system_status = QTextEdit()
+        self.system_status.setFont(QFont("Courier", 8))
+        self.system_status.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {self.colors['background']};
+                color: {self.colors['primary_text']};
+                border: 1px solid {self.colors['divider']};
+            }}
+        """)
+        self.system_status.setMaximumHeight(150)
+        layout.addWidget(self.system_status)
+        
         layout.addStretch()
 
     def connect_mavlink(self):
@@ -644,10 +701,8 @@ class DroneGCSDashboard(QMainWindow):
         self.telem_labels['lon'].setText(f"{self.telemetry_data['lon']:.6f}°")
         self.telem_labels['alt'].setText(f"{self.telemetry_data['alt']:.1f} m")
         self.telem_labels['ground_speed'].setText(f"{self.telemetry_data['ground_speed']:.1f} m/s")
-        self.telem_labels['battery'].setText(f"{self.telemetry_data['battery']:.0f}%")
         self.telem_labels['armed'].setText("YES" if self.telemetry_data['armed'] else "NO")
         self.telem_labels['mode'].setText(self.telemetry_data['mode'])
-        self.telem_labels['gps_status'].setText(self.telemetry_data.get('gps_status', '--'))
         
     def draw_map(self):
         if not hasattr(self, 'map_scene'):
@@ -959,10 +1014,12 @@ class DroneGCSDashboard(QMainWindow):
                     self.log_message(f"✗ Mission process failed with code {return_code}")
                     self.mission_status.setText("Mission failed - starting recovery...")
                     
-                # Log any output
+                # Log any output and check for battery low signal
                 if stdout.strip():
                     for line in stdout.strip().split('\n'):
                         self.log_message(f"Mission: {line}")
+                        if "BATTERY_LOW_SIGNAL" in line:
+                            self.show_battery_low_popup()
                         
                 if stderr.strip():
                     for line in stderr.strip().split('\n'):
@@ -1108,9 +1165,14 @@ class DroneGCSDashboard(QMainWindow):
                     lon_diff = abs(current_lon - self.home_coordinates['lon'])
                     alt_diff = abs(current_alt - self.home_coordinates['alt'])
                     
-                    # Check if close to home (within 2 meters)
-                    if lat_diff < 0.00002 and lon_diff < 0.00002 and alt_diff < 2.0:
-                        self.log_message("✓ Drone arrived at home position")
+                    # Check if close to home (within 1 meter horizontally, ignore altitude)
+                    # Convert lat/lon differences to approximate meters
+                    lat_meters = lat_diff * 111320
+                    lon_meters = lon_diff * 111320 * math.cos(math.radians(47.4))
+                    horizontal_distance = math.sqrt(lat_meters**2 + lon_meters**2)
+                    
+                    if horizontal_distance < 1.0:  # Within 1 meter of home position
+                        self.log_message(f"✓ Drone arrived within 1m of home position (distance: {horizontal_distance:.1f}m)")
                         QTimer.singleShot(0, self.launch_precision_landing)
                         return
                     
@@ -1201,6 +1263,26 @@ class DroneGCSDashboard(QMainWindow):
             "3. Reconnect to dashboard if needed"
         )
         self.mission_status.setText("Manual intervention required")
+    
+    def show_battery_low_popup(self):
+        """Show auto-closing battery low popup"""
+        try:
+            # Create a simple message box that auto-closes
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Warning)
+            msg.setWindowTitle("Battery Low")
+            msg.setText("🔋 Battery Low!")
+            msg.setInformativeText("Drone is returning to home for precision landing.")
+            msg.setStandardButtons(QMessageBox.NoButton)  # No buttons
+            msg.show()
+            
+            # Auto-close after 3 seconds
+            QTimer.singleShot(3000, msg.close)
+            
+            self.log_message("🔋 Battery low popup displayed")
+            
+        except Exception as e:
+            self.log_message(f"Error showing battery popup: {e}")
 
             
     def return_to_launch(self):

@@ -189,6 +189,7 @@ class SimpleMissionExecutor:
                 if elapsed_time >= timeout_seconds:
                     print("🔋 Battery low / Time limit reached - mission interrupted!")
                     print("🏠 Dashboard will take over for return to home and landing")
+                    print("BATTERY_LOW_SIGNAL")  # Signal for dashboard to show popup
                     break
                     
         except Exception as e:

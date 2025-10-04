@@ -61,7 +61,7 @@ class PrecisionLander(Node):
         self.max_velocity = 0.5  # 0.5 m/s max velocity
         self.landing_altitude = 5.0  # Start precision landing at 5m
         self.final_altitude = 1.0   # Final altitude before landing
-        self.position_tolerance = 0.2  # 0.2m position tolerance
+        self.position_tolerance = 0.1  # 0.2m position tolerance
         self.detection_timeout = 20.0  # 20 seconds timeout
         
         # State variables
