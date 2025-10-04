@@ -1019,7 +1019,7 @@ class DroneGCSDashboard(QMainWindow):
                     for line in stdout.strip().split('\n'):
                         self.log_message(f"Mission: {line}")
                         if "BATTERY_LOW_SIGNAL" in line:
-                            self.show_battery_low_popup()
+                            self.log_message("🔋 Battery low - drone returning to home for precision landing")
                         
                 if stderr.strip():
                     for line in stderr.strip().split('\n'):
@@ -1263,26 +1263,6 @@ class DroneGCSDashboard(QMainWindow):
             "3. Reconnect to dashboard if needed"
         )
         self.mission_status.setText("Manual intervention required")
-    
-    def show_battery_low_popup(self):
-        """Show auto-closing battery low popup"""
-        try:
-            # Create a simple message box that auto-closes
-            msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Warning)
-            msg.setWindowTitle("Battery Low")
-            msg.setText("🔋 Battery Low!")
-            msg.setInformativeText("Drone is returning to home for precision landing.")
-            msg.setStandardButtons(QMessageBox.NoButton)  # No buttons
-            msg.show()
-            
-            # Auto-close after 3 seconds
-            QTimer.singleShot(3000, msg.close)
-            
-            self.log_message("🔋 Battery low popup displayed")
-            
-        except Exception as e:
-            self.log_message(f"Error showing battery popup: {e}")
 
             
     def return_to_launch(self):
