@@ -8,6 +8,13 @@ CONTAINER_NAME="${2:-dronebase_dev}"
 HOST_REPO_PATH="${3:-$(pwd)}"
 CONTAINER_REPO_PATH="/root/dronews/src/dronesim"
 
+# Determine if custom volume mapping is provided
+if [[ "$HOST_REPO_PATH" == *:* ]]; then
+    VOLUME_ARG=( -v "$HOST_REPO_PATH" )
+else
+    VOLUME_ARG=( -v "$HOST_REPO_PATH:$CONTAINER_REPO_PATH" )
+fi
+
 # Shift to allow passing extra -v options as further arguments
 shift 3 || true
 
@@ -40,7 +47,7 @@ if docker ps -a --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}\$"; then
 fi
 
 # --privileged gives access to all host devices (USB, etc.)
-DOCKER_RUN_CMD=(docker run -v "${HOST_REPO_PATH}:${CONTAINER_REPO_PATH}" \
+DOCKER_RUN_CMD=(docker run "${VOLUME_ARG[@]}" \
     -it \
     --privileged \
     --net=host \
