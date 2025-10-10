@@ -846,6 +846,11 @@ class DroneGCSDashboard(QMainWindow):
                     bg_center_x = -scaled_width//4 + scaled_width//2
                     bg_center_y = -scaled_height//4 + scaled_height//2
                     self.log_message(f"Background center (drone origin) at scene: ({bg_center_x}, {bg_center_y})")
+                    
+                    # Log the exact world mapping
+                    self.log_message(f"World mapping - X-axis: 4352px = 4514m (~{4352/4514:.3f} px/m)")
+                    self.log_message(f"World mapping - Y-axis: 4352px = 4514m (~{4352/4514:.3f} px/m)")
+                    self.log_message(f"Square world: 4514m x 4514m represented by 4352px x 4352px image")
                     self.log_message(f"=== End Coordinate System Setup ===")
             except Exception as e:
                 # If background loading fails, continue without it
@@ -944,21 +949,21 @@ class DroneGCSDashboard(QMainWindow):
             lat_diff_m = (lat - self.map_center['lat']) * 111320  # meters per degree latitude
             lon_diff_m = (lon - self.map_center['lon']) * 111320 * math.cos(math.radians(47.4))  # ~75,000m per degree
             
-            # Scale: Dynamic pixel-to-meter ratio based on background image size
-            # Assume the background image represents a reasonable real-world area
-            # For a 4352x4352 image, assume it represents roughly 1000x1000 meters (1km x 1km)
-            # This gives us approximately 4.35 pixels per meter in the original image
-            original_pixels_per_meter = self.bg_image_width / 1000.0  # Adjustable based on real area
+            # Scale: Exact pixel-to-meter ratio based on real world measurements
+            # Both X-axis and Y-axis: 4352 pixels represents 4514m world span (square world)
+            original_pixels_per_meter_x = self.bg_image_width / 4514.0   # X-axis: ~0.964 pixels/meter
+            original_pixels_per_meter_y = self.bg_image_height / 4514.0  # Y-axis: ~0.964 pixels/meter
             
             # Calculate current scaling factor from original to displayed size
             current_scale_factor = scaled_bg_width / self.bg_image_width
             
-            # Final pixels per meter in the current display
-            pixels_per_meter = original_pixels_per_meter * current_scale_factor
+            # Final pixels per meter in the current display (different for X and Y)
+            pixels_per_meter_x = original_pixels_per_meter_x * current_scale_factor
+            pixels_per_meter_y = original_pixels_per_meter_y * current_scale_factor
             
             # Position relative to background center (drone origin at image center)
-            x = bg_center_scene_x + lon_diff_m * pixels_per_meter
-            y = bg_center_scene_y - lat_diff_m * pixels_per_meter  # Negative because screen Y increases downward
+            x = bg_center_scene_x + lon_diff_m * pixels_per_meter_x
+            y = bg_center_scene_y - lat_diff_m * pixels_per_meter_y  # Negative because screen Y increases downward
             
         else:
             # Fallback to original method if no background image
@@ -1004,18 +1009,20 @@ class DroneGCSDashboard(QMainWindow):
             pixel_x_diff = x - bg_center_scene_x
             pixel_y_diff = bg_center_scene_y - y  # Negative because screen Y increases downward
             
-            # Convert pixels to meters using dynamic scaling
-            # For a 4352x4352 image, assume it represents roughly 1000x1000 meters (1km x 1km)
-            original_pixels_per_meter = self.bg_image_width / 1000.0  # Adjustable based on real area
+            # Convert pixels to meters using exact scaling
+            # Both X-axis and Y-axis: 4352 pixels represents 4514m world span (square world)
+            original_pixels_per_meter_x = self.bg_image_width / 4514.0   # X-axis: ~0.964 pixels/meter
+            original_pixels_per_meter_y = self.bg_image_height / 4514.0  # Y-axis: ~0.964 pixels/meter
             
             # Calculate current scaling factor from original to displayed size
             current_scale_factor = scaled_bg_width / self.bg_image_width
             
-            # Final pixels per meter in the current display
-            pixels_per_meter = original_pixels_per_meter * current_scale_factor
+            # Final pixels per meter in the current display (different for X and Y)
+            pixels_per_meter_x = original_pixels_per_meter_x * current_scale_factor
+            pixels_per_meter_y = original_pixels_per_meter_y * current_scale_factor
             
-            meter_x_diff = pixel_x_diff / pixels_per_meter
-            meter_y_diff = pixel_y_diff / pixels_per_meter
+            meter_x_diff = pixel_x_diff / pixels_per_meter_x
+            meter_y_diff = pixel_y_diff / pixels_per_meter_y
             
         else:
             # Fallback to original method if no background image
