@@ -51,6 +51,12 @@ class DroneGCSDashboard(QMainWindow):
         self.map_update_interval = 1000  # Update map max once per second
         self.background_item = None  # Cache background item
         
+        # Background image dimensions for coordinate system
+        self.bg_image_width = 0
+        self.bg_image_height = 0
+        self.bg_image_center_x = 0
+        self.bg_image_center_y = 0
+        
         # Telemetry data
         self.telemetry_data = {
             'lat': 0.0, 'lon': 0.0, 'alt': 0.0,
@@ -799,12 +805,27 @@ class DroneGCSDashboard(QMainWindow):
                 
                 if os.path.exists(bg_path):
                     pixmap = QPixmap(bg_path)
-                    # Scale the image to 2.5x the map area for panning capability
+                    
+                    # Store original image dimensions
+                    self.bg_image_width = pixmap.width()
+                    self.bg_image_height = pixmap.height()
+                    self.bg_image_center_x = self.bg_image_width // 2
+                    self.bg_image_center_y = self.bg_image_height // 2
+                    
+                    # Scale the image maintaining aspect ratio
                     zoom_factor = 2.5
-                    scaled_width = int(width * zoom_factor)
-                    scaled_height = int(height * zoom_factor)
+                    bg_aspect_ratio = self.bg_image_width / self.bg_image_height
+                    
+                    # Scale based on the larger dimension to ensure the image fits with zoom factor
+                    if bg_aspect_ratio >= 1.0:  # Width >= Height (landscape or square)
+                        scaled_width = int(width * zoom_factor)
+                        scaled_height = int(scaled_width / bg_aspect_ratio)
+                    else:  # Height > Width (portrait)
+                        scaled_height = int(height * zoom_factor)
+                        scaled_width = int(scaled_height * bg_aspect_ratio)
+                    
                     # Use faster scaling for better performance
-                    scaled_pixmap = pixmap.scaled(scaled_width, scaled_height, Qt.KeepAspectRatioByExpanding, Qt.FastTransformation)
+                    scaled_pixmap = pixmap.scaled(scaled_width, scaled_height, Qt.KeepAspectRatio, Qt.FastTransformation)
                     self.background_item = QGraphicsPixmapItem(scaled_pixmap)
                     # Center the zoomed image so panning can reveal different areas
                     self.background_item.setPos(-scaled_width//4, -scaled_height//4)  # Offset to center the larger image
@@ -813,6 +834,19 @@ class DroneGCSDashboard(QMainWindow):
                     
                     # Expand scene rect to accommodate the larger background for panning
                     self.map_scene.setSceneRect(-scaled_width//4, -scaled_height//4, scaled_width, scaled_height)
+                    
+                    # Log coordinate system details
+                    self.log_message(f"=== Coordinate System Setup ===")
+                    self.log_message(f"Original background: {self.bg_image_width}x{self.bg_image_height} pixels")
+                    self.log_message(f"Map view size: {width}x{height}")
+                    self.log_message(f"Scaled background: {scaled_width}x{scaled_height}")
+                    self.log_message(f"Background position: ({-scaled_width//4}, {-scaled_height//4})")
+                    
+                    # Calculate where the background center appears in scene coordinates
+                    bg_center_x = -scaled_width//4 + scaled_width//2
+                    bg_center_y = -scaled_height//4 + scaled_height//2
+                    self.log_message(f"Background center (drone origin) at scene: ({bg_center_x}, {bg_center_y})")
+                    self.log_message(f"=== End Coordinate System Setup ===")
             except Exception as e:
                 # If background loading fails, continue without it
                 pass
@@ -840,6 +874,29 @@ class DroneGCSDashboard(QMainWindow):
         if self.drone_position['lat'] != 0 or self.drone_position['lon'] != 0:
             x, y = self.lat_lon_to_pixels(self.drone_position['lat'], self.drone_position['lon'])
             
+            # Debug logging for drone position conversion
+            if hasattr(self, 'bg_image_width') and self.bg_image_width > 0:
+                map_view_width = 800
+                map_view_height = 600
+                zoom_factor = 2.5
+                bg_aspect_ratio = self.bg_image_width / self.bg_image_height
+                
+                # Calculate scaled dimensions maintaining aspect ratio
+                if bg_aspect_ratio >= 1.0:
+                    scaled_bg_width = int(map_view_width * zoom_factor)
+                    scaled_bg_height = int(scaled_bg_width / bg_aspect_ratio)
+                else:
+                    scaled_bg_height = int(map_view_height * zoom_factor)
+                    scaled_bg_width = int(scaled_bg_height * bg_aspect_ratio)
+                
+                bg_center_x = -scaled_bg_width//4 + scaled_bg_width//2
+                bg_center_y = -scaled_bg_height//4 + scaled_bg_height//2
+                
+                self.log_message(f"Drone GPS: ({self.drone_position['lat']:.6f}, {self.drone_position['lon']:.6f})")
+                self.log_message(f"Map center GPS: ({self.map_center['lat']:.6f}, {self.map_center['lon']:.6f})")
+                self.log_message(f"Background center scene: ({bg_center_x}, {bg_center_y})")
+                self.log_message(f"Drone scene position: ({x}, {y})")
+            
             # Drone circle
             drone_item = QGraphicsEllipseItem(x-8, y-8, 16, 16)
             drone_item.setBrush(QBrush(QColor(self.colors['accent'])))
@@ -854,42 +911,122 @@ class DroneGCSDashboard(QMainWindow):
             self.map_scene.addItem(drone_label)
             
     def lat_lon_to_pixels(self, lat, lon):
-        # Convert GPS coordinates to pixels with 20m grid squares
-        # Each 50-pixel grid square represents 20m x 20m in real world
-        width = 800  # Updated to match new map size
-        height = 600  # Updated to match new map size
+        # Convert GPS coordinates to pixels, with (0,0) at background image center
+        map_view_width = 800  # Map view size
+        map_view_height = 600  # Map view size
         
-        # Simplified conversion: 1 degree ≈ 111,320 meters
-        # For small distances, we can use approximate conversion
-        # At latitude ~47°: 1 degree lat ≈ 111,320m, 1 degree lon ≈ 75,000m
-        
-        # Convert GPS differences to approximate meters
-        lat_diff_m = (lat - self.map_center['lat']) * 111320  # meters per degree latitude
-        lon_diff_m = (lon - self.map_center['lon']) * 111320 * math.cos(math.radians(47.4))  # ~75,000m per degree
-        
-        # Scale: 2.5 pixels per meter (50 pixels = 20 meters)
-        pixels_per_meter = 2.5
-        x = width/2 + lon_diff_m * pixels_per_meter
-        y = height/2 - lat_diff_m * pixels_per_meter  # Negative because screen Y increases downward
+        # If we have background image dimensions, use them for accurate positioning
+        if self.bg_image_width > 0 and self.bg_image_height > 0:
+            # Calculate scale factor maintaining aspect ratio
+            zoom_factor = 2.5
+            
+            # Use background image aspect ratio instead of map view aspect ratio
+            bg_aspect_ratio = self.bg_image_width / self.bg_image_height
+            
+            # Scale based on the larger dimension to ensure the image fits with zoom factor
+            if bg_aspect_ratio >= 1.0:  # Width >= Height (landscape or square)
+                scaled_bg_width = int(map_view_width * zoom_factor)
+                scaled_bg_height = int(scaled_bg_width / bg_aspect_ratio)
+            else:  # Height > Width (portrait)
+                scaled_bg_height = int(map_view_height * zoom_factor)
+                scaled_bg_width = int(scaled_bg_height * bg_aspect_ratio)
+            
+            # The background image is positioned to center it in the scene
+            bg_offset_x = -scaled_bg_width // 4
+            bg_offset_y = -scaled_bg_height // 4
+            
+            # The center of the scaled background image in scene coordinates
+            # This is where the drone's world origin (0,0) should appear
+            bg_center_scene_x = bg_offset_x + scaled_bg_width // 2
+            bg_center_scene_y = bg_offset_y + scaled_bg_height // 2
+            
+            # Convert GPS differences to approximate meters
+            lat_diff_m = (lat - self.map_center['lat']) * 111320  # meters per degree latitude
+            lon_diff_m = (lon - self.map_center['lon']) * 111320 * math.cos(math.radians(47.4))  # ~75,000m per degree
+            
+            # Scale: Dynamic pixel-to-meter ratio based on background image size
+            # Assume the background image represents a reasonable real-world area
+            # For a 4352x4352 image, assume it represents roughly 1000x1000 meters (1km x 1km)
+            # This gives us approximately 4.35 pixels per meter in the original image
+            original_pixels_per_meter = self.bg_image_width / 1000.0  # Adjustable based on real area
+            
+            # Calculate current scaling factor from original to displayed size
+            current_scale_factor = scaled_bg_width / self.bg_image_width
+            
+            # Final pixels per meter in the current display
+            pixels_per_meter = original_pixels_per_meter * current_scale_factor
+            
+            # Position relative to background center (drone origin at image center)
+            x = bg_center_scene_x + lon_diff_m * pixels_per_meter
+            y = bg_center_scene_y - lat_diff_m * pixels_per_meter  # Negative because screen Y increases downward
+            
+        else:
+            # Fallback to original method if no background image
+            lat_diff_m = (lat - self.map_center['lat']) * 111320
+            lon_diff_m = (lon - self.map_center['lon']) * 111320 * math.cos(math.radians(47.4))
+            
+            pixels_per_meter = 2.5
+            x = map_view_width/2 + lon_diff_m * pixels_per_meter
+            y = map_view_height/2 - lat_diff_m * pixels_per_meter
         
         return int(x), int(y)
         
     def pixels_to_lat_lon(self, x, y):
-        # Convert pixels back to GPS coordinates  
-        # For simulation, use much smaller GPS coordinate changes
-        width = 800  # Updated to match new map size
-        height = 600  # Updated to match new map size
+        # Convert pixels back to GPS coordinates, with background image center as origin
+        map_view_width = 800  # Map view size
+        map_view_height = 600  # Map view size
         
-        # Calculate pixel differences from center
-        pixel_x_diff = x - width/2
-        pixel_y_diff = height/2 - y  # Negative because screen Y increases downward
+        if self.bg_image_width > 0 and self.bg_image_height > 0:
+            # Calculate scale factor maintaining aspect ratio
+            zoom_factor = 2.5
+            
+            # Use background image aspect ratio
+            bg_aspect_ratio = self.bg_image_width / self.bg_image_height
+            
+            # Scale based on the larger dimension to ensure the image fits with zoom factor
+            if bg_aspect_ratio >= 1.0:  # Width >= Height (landscape or square)
+                scaled_bg_width = int(map_view_width * zoom_factor)
+                scaled_bg_height = int(scaled_bg_width / bg_aspect_ratio)
+            else:  # Height > Width (portrait)
+                scaled_bg_height = int(map_view_height * zoom_factor)
+                scaled_bg_width = int(scaled_bg_height * bg_aspect_ratio)
+            
+            # The background image is positioned to center it in the scene
+            bg_offset_x = -scaled_bg_width // 4
+            bg_offset_y = -scaled_bg_height // 4
+            
+            # The center of the scaled background image in scene coordinates
+            # This is where the drone's world origin (0,0) should be positioned
+            bg_center_scene_x = bg_offset_x + scaled_bg_width // 2
+            bg_center_scene_y = bg_offset_y + scaled_bg_height // 2
+            
+            # Calculate pixel differences from background center
+            pixel_x_diff = x - bg_center_scene_x
+            pixel_y_diff = bg_center_scene_y - y  # Negative because screen Y increases downward
+            
+            # Convert pixels to meters using dynamic scaling
+            # For a 4352x4352 image, assume it represents roughly 1000x1000 meters (1km x 1km)
+            original_pixels_per_meter = self.bg_image_width / 1000.0  # Adjustable based on real area
+            
+            # Calculate current scaling factor from original to displayed size
+            current_scale_factor = scaled_bg_width / self.bg_image_width
+            
+            # Final pixels per meter in the current display
+            pixels_per_meter = original_pixels_per_meter * current_scale_factor
+            
+            meter_x_diff = pixel_x_diff / pixels_per_meter
+            meter_y_diff = pixel_y_diff / pixels_per_meter
+            
+        else:
+            # Fallback to original method if no background image
+            pixel_x_diff = x - map_view_width/2
+            pixel_y_diff = map_view_height/2 - y
+            
+            pixels_per_meter = 2.5
+            meter_x_diff = pixel_x_diff / pixels_per_meter
+            meter_y_diff = pixel_y_diff / pixels_per_meter
         
-        # Convert pixels to meters (2.5 pixels per meter)
-        pixels_per_meter = 2.5
-        meter_x_diff = pixel_x_diff / pixels_per_meter
-        meter_y_diff = pixel_y_diff / pixels_per_meter
-        
-        # Convert meters to GPS coordinates - use much smaller scale for simulation
+        # Convert meters to GPS coordinates
         # 1 degree ≈ 111320m, so 1m ≈ 0.000009 degrees latitude
         # At lat 47.4°, 1m ≈ 0.000013 degrees longitude
         degrees_per_meter_lat = 1.0 / 111320  # ~0.000009
