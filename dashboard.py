@@ -167,6 +167,7 @@ class DroneGCSDashboard(QMainWindow):
         self.setup_connection_panel(top_layout)
         self.setup_mission_control_panel(top_layout)
         self.setup_top_telemetry_panel(top_layout)
+        self.setup_top_map_controls_panel(top_layout)  # Add map controls to top bar
         top_layout.addStretch()  # Push everything to left, leaving right side empty
         main_layout.addLayout(top_layout)
         
@@ -177,52 +178,30 @@ class DroneGCSDashboard(QMainWindow):
         # Left side: Large map
         self.setup_map_panel(content_layout)
         
-        # Right side: Vertical layout with tabbed interface at top and map controls at bottom
-        right_side_layout = QVBoxLayout()
-        
-        # Tabbed interface at top
-        self.setup_tabbed_panels(right_side_layout)
-        
-        # Map controls at bottom (moved from beside map to under tabbed panels)
-        self.setup_map_controls_panel(right_side_layout)
-        
-        # Add right side container to main content
-        right_container = QWidget()
-        right_container.setLayout(right_side_layout)
-        right_container.setFixedWidth(350)
-        content_layout.addWidget(right_container)
+        # Right side: Only tabbed interface (map controls moved to top bar)
+        self.setup_tabbed_panels(content_layout)
         
         main_layout.addLayout(content_layout)
         
     def setup_connection_panel(self, parent):
         conn_frame = QFrame()
-        conn_frame.setFixedWidth(200)
+        conn_frame.setFixedWidth(300)  # Increased to 1.5x (200 * 1.5 = 300)
         parent.addWidget(conn_frame)
         
         layout = QVBoxLayout(conn_frame)
-        layout.setContentsMargins(8, 5, 8, 5)
+        layout.setContentsMargins(8, 3, 8, 3)  # Reduced height margins
         
-        # Title
-        title = QLabel("Connection")
-        title.setFont(QFont("Arial", 10, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-        
-        # Connection buttons (horizontal)
-        button_layout = QHBoxLayout()
-        
+        # Connection buttons (vertical)
         self.connect_btn = QPushButton("Connect")
-        self.connect_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['success']}; min-width: 60px; }}")
+        self.connect_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['success']}; min-width: 80px; min-height: 20px; }}")
         self.connect_btn.clicked.connect(self.connect_mavlink)
-        button_layout.addWidget(self.connect_btn)
+        layout.addWidget(self.connect_btn)
         
         self.disconnect_btn = QPushButton("Disconnect")
-        self.disconnect_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['warning']}; min-width: 60px; }}")
+        self.disconnect_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['warning']}; min-width: 80px; min-height: 20px; }}")
         self.disconnect_btn.clicked.connect(self.disconnect_mavlink)
         self.disconnect_btn.setEnabled(False)
-        button_layout.addWidget(self.disconnect_btn)
-        
-        layout.addLayout(button_layout)
+        layout.addWidget(self.disconnect_btn)
         
         # Connection status (smaller)
         self.status_label = QLabel("Disconnected")
@@ -285,15 +264,9 @@ class DroneGCSDashboard(QMainWindow):
         parent.addWidget(telem_frame)
         
         layout = QVBoxLayout(telem_frame)
-        layout.setContentsMargins(8, 5, 8, 5)
+        layout.setContentsMargins(8, 3, 8, 3)  # Reduced height margins
         
-        # Title
-        title = QLabel("Live Telemetry")
-        title.setFont(QFont("Arial", 10, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-        
-        # Compact telemetry data display
+        # Remove title and go straight to telemetry data display
         data_widget = QWidget()
         data_layout = QGridLayout(data_widget)
         data_layout.setSpacing(4)
@@ -321,6 +294,41 @@ class DroneGCSDashboard(QMainWindow):
             data_layout.addWidget(self.telem_labels[key], row, col + 1, Qt.AlignLeft)
         
         layout.addWidget(data_widget)
+    
+    def setup_top_map_controls_panel(self, parent):
+        map_controls_frame = QFrame()
+        map_controls_frame.setFixedWidth(420)  # Increased to 1.5x (280 * 1.5 = 420)
+        parent.addWidget(map_controls_frame)
+        
+        layout = QVBoxLayout(map_controls_frame)
+        layout.setContentsMargins(8, 2, 8, 2)  # Reduced height margins
+        
+        # Title (reduced height)
+        title = QLabel("Map Controls")
+        title.setFont(QFont("Arial", 9, QFont.Bold))  # Slightly smaller font
+        title.setAlignment(Qt.AlignCenter)
+        title.setMaximumHeight(15)  # Limit title height
+        layout.addWidget(title)
+        
+        # Buttons layout (vertical)
+        # Clear waypoints button
+        clear_btn = QPushButton("Clear Waypoints")
+        clear_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['warning']}; min-width: 100px; min-height: 18px; }}")
+        clear_btn.clicked.connect(self.clear_waypoints)
+        layout.addWidget(clear_btn)
+        
+        # Center on drone button
+        center_btn = QPushButton("Center on Drone")
+        center_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['accent']}; min-width: 100px; min-height: 18px; }}")
+        center_btn.clicked.connect(self.center_on_drone)
+        layout.addWidget(center_btn)
+        
+        # Waypoint count display
+        self.waypoint_count_label = QLabel("Waypoints: 0")
+        self.waypoint_count_label.setFont(QFont("Arial", 8, QFont.Bold))
+        self.waypoint_count_label.setStyleSheet(f"color: {self.colors['success']};")
+        self.waypoint_count_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.waypoint_count_label)
         
     def setup_map_panel(self, parent):
         # Large map (no title, expanded size) - takes full left side
@@ -782,40 +790,7 @@ class DroneGCSDashboard(QMainWindow):
             # If background loading fails, continue without it
             pass
         
-        # Draw grid lines (50 pixels = 20 meters)
-        grid_pen = QPen(QColor(self.colors['divider']), 1)
-        for i in range(0, width, 50):
-            self.map_scene.addLine(i, 0, i, height, grid_pen)
-        for i in range(0, height, 50):
-            self.map_scene.addLine(0, i, width, i, grid_pen)
-            
-        # Add scale labels (every 100 pixels = 40m)
-        scale_pen = QPen(QColor(self.colors['secondary_text']), 1)
-        for i in range(0, width, 100):
-            meters_from_center = (i - width/2) / 2.5  # 2.5 pixels per meter
-            if i == width/2:  # Center line
-                label_text = "0m"
-            else:
-                label_text = f"{int(meters_from_center)}m"
-            
-            scale_label = QGraphicsTextItem(label_text)
-            scale_label.setPos(i - 10, height - 20)
-            scale_label.setDefaultTextColor(QColor(self.colors['secondary_text']))
-            scale_label.setFont(QFont("Arial", 7))
-            self.map_scene.addItem(scale_label)
-            
-        for i in range(0, height, 100):
-            meters_from_center = (height/2 - i) / 2.5  # 2.5 pixels per meter
-            if i == height/2:  # Center line
-                label_text = "0m"
-            else:
-                label_text = f"{int(meters_from_center)}m"
-            
-            scale_label = QGraphicsTextItem(label_text)
-            scale_label.setPos(5, i - 10)
-            scale_label.setDefaultTextColor(QColor(self.colors['secondary_text']))
-            scale_label.setFont(QFont("Arial", 7))
-            self.map_scene.addItem(scale_label)
+        # Grid and scale labels removed for cleaner map view
             
         # Draw waypoints
         for i, wp in enumerate(self.waypoints):
@@ -937,15 +912,26 @@ class DroneGCSDashboard(QMainWindow):
         waypoint = {'lat': lat, 'lon': lon, 'alt': alt}
         self.waypoints.append(waypoint)
         
-        # Update waypoint list
-        self.waypoint_listbox.addItem(f"WP{len(self.waypoints)}: {lat:.6f}, {lon:.6f}, {alt}m")
+        # Update waypoint list (if it exists)
+        if hasattr(self, 'waypoint_listbox'):
+            self.waypoint_listbox.addItem(f"WP{len(self.waypoints)}: {lat:.6f}, {lon:.6f}, {alt}m")
+        
+        # Update waypoint count in top bar
+        if hasattr(self, 'waypoint_count_label'):
+            self.waypoint_count_label.setText(f"Waypoints: {len(self.waypoints)}")
         
         self.draw_map()
         self.log_message(f"Added waypoint: {lat:.6f}, {lon:.6f}")
         
     def clear_waypoints(self):
         self.waypoints.clear()
-        self.waypoint_listbox.clear()
+        if hasattr(self, 'waypoint_listbox'):
+            self.waypoint_listbox.clear()
+        
+        # Update waypoint count in top bar
+        if hasattr(self, 'waypoint_count_label'):
+            self.waypoint_count_label.setText("Waypoints: 0")
+            
         self.draw_map()
         self.log_message("Cleared all waypoints")
         
