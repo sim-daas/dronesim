@@ -41,6 +41,16 @@ class DroneGCSDashboard(QMainWindow):
         self.home_coordinates = {'lat': 47.3977, 'lon': 8.5456, 'alt': 10.0}  # Default home position
         self.reconnection_attempts = 0
         self.max_reconnection_attempts = 3
+        
+        # Performance optimization for map updates
+        self.map_update_timer = QTimer()
+        self.map_update_timer.setSingleShot(True)
+        self.map_update_timer.timeout.connect(self.perform_map_update)
+        self.pending_map_update = False
+        self.last_map_update = 0
+        self.map_update_interval = 1000  # Update map max once per second
+        self.background_item = None  # Cache background item
+        
         # Telemetry data
         self.telemetry_data = {
             'lat': 0.0, 'lon': 0.0, 'alt': 0.0,
@@ -682,6 +692,7 @@ class DroneGCSDashboard(QMainWindow):
         
     async def monitor_position(self):
         """Monitor drone position"""
+        position_counter = 0
         async for position in self.drone.telemetry.position():
             self.telemetry_data['lat'] = position.latitude_deg
             self.telemetry_data['lon'] = position.longitude_deg
@@ -691,15 +702,21 @@ class DroneGCSDashboard(QMainWindow):
             self.drone_position['lon'] = position.longitude_deg
             self.drone_position['alt'] = position.relative_altitude_m
             
-            # Update UI
-            QTimer.singleShot(0, self.update_telemetry_display)
-            QTimer.singleShot(0, self.update_map)
+            # Update UI every 5th position update to reduce load
+            position_counter += 1
+            if position_counter % 5 == 0:
+                QTimer.singleShot(0, self.update_telemetry_display)
+                QTimer.singleShot(0, self.throttled_map_update)
             
     async def monitor_flight_mode(self):
         """Monitor flight mode"""
+        mode_counter = 0
         async for flight_mode in self.drone.telemetry.flight_mode():
             self.telemetry_data['mode'] = flight_mode.name
-            QTimer.singleShot(0, self.update_telemetry_display)
+            # Update UI less frequently
+            mode_counter += 1
+            if mode_counter % 3 == 0:
+                QTimer.singleShot(0, self.update_telemetry_display)
             
     async def monitor_battery(self):
         """Monitor battery status"""
@@ -731,11 +748,15 @@ class DroneGCSDashboard(QMainWindow):
             
     async def monitor_velocity(self):
         """Monitor ground speed"""
+        velocity_counter = 0
         async for velocity in self.drone.telemetry.velocity_ned():
             # Calculate ground speed from north and east components
             ground_speed = math.sqrt(velocity.north_m_s**2 + velocity.east_m_s**2)
             self.telemetry_data['ground_speed'] = ground_speed
-            QTimer.singleShot(0, self.update_telemetry_display)
+            # Update UI less frequently
+            velocity_counter += 1
+            if velocity_counter % 3 == 0:
+                QTimer.singleShot(0, self.update_telemetry_display)
         
     def update_telemetry_display(self):
         self.telem_labels['lat'].setText(f"{self.telemetry_data['lat']:.6f}°")
@@ -749,42 +770,52 @@ class DroneGCSDashboard(QMainWindow):
         if not hasattr(self, 'map_scene'):
             return
             
-        self.map_scene.clear()
+        # Only clear dynamic elements, not the background
+        items_to_remove = []
+        for item in self.map_scene.items():
+            if item != self.background_item:
+                items_to_remove.append(item)
+        
+        for item in items_to_remove:
+            self.map_scene.removeItem(item)
         
         # Draw grid
         width = 800  # Updated to match new map size
         height = 600  # Updated to match new map size  
         
-        # Set scene rect
-        self.map_scene.setSceneRect(0, 0, width, height)
-        
-        # Add background image if available
-        try:
-            from PyQt5.QtGui import QPixmap
-            from PyQt5.QtWidgets import QGraphicsPixmapItem
+        # Initialize background only once
+        if self.background_item is None:
+            # Set scene rect
+            self.map_scene.setSceneRect(0, 0, width, height)
             
-            # Try to load background image from root folder
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            bg_path = os.path.join(current_dir, "back.png")
-            
-            if os.path.exists(bg_path):
-                pixmap = QPixmap(bg_path)
-                # Scale the image to 2.5x the map area for panning capability
-                zoom_factor = 2.5
-                scaled_width = int(width * zoom_factor)
-                scaled_height = int(height * zoom_factor)
-                scaled_pixmap = pixmap.scaled(scaled_width, scaled_height, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-                bg_item = QGraphicsPixmapItem(scaled_pixmap)
-                # Center the zoomed image so panning can reveal different areas
-                bg_item.setPos(-scaled_width//4, -scaled_height//4)  # Offset to center the larger image
-                bg_item.setZValue(-1)  # Put background behind everything else
-                self.map_scene.addItem(bg_item)
+            # Add background image if available
+            try:
+                from PyQt5.QtGui import QPixmap
+                from PyQt5.QtWidgets import QGraphicsPixmapItem
                 
-                # Expand scene rect to accommodate the larger background for panning
-                self.map_scene.setSceneRect(-scaled_width//4, -scaled_height//4, scaled_width, scaled_height)
-        except Exception as e:
-            # If background loading fails, continue without it
-            pass
+                # Try to load background image from root folder
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                bg_path = os.path.join(current_dir, "back.png")
+                
+                if os.path.exists(bg_path):
+                    pixmap = QPixmap(bg_path)
+                    # Scale the image to 2.5x the map area for panning capability
+                    zoom_factor = 2.5
+                    scaled_width = int(width * zoom_factor)
+                    scaled_height = int(height * zoom_factor)
+                    # Use faster scaling for better performance
+                    scaled_pixmap = pixmap.scaled(scaled_width, scaled_height, Qt.KeepAspectRatioByExpanding, Qt.FastTransformation)
+                    self.background_item = QGraphicsPixmapItem(scaled_pixmap)
+                    # Center the zoomed image so panning can reveal different areas
+                    self.background_item.setPos(-scaled_width//4, -scaled_height//4)  # Offset to center the larger image
+                    self.background_item.setZValue(-1)  # Put background behind everything else
+                    self.map_scene.addItem(self.background_item)
+                    
+                    # Expand scene rect to accommodate the larger background for panning
+                    self.map_scene.setSceneRect(-scaled_width//4, -scaled_height//4, scaled_width, scaled_height)
+            except Exception as e:
+                # If background loading fails, continue without it
+                pass
         
         # Grid and scale labels removed for cleaner map view
             
@@ -965,7 +996,24 @@ class DroneGCSDashboard(QMainWindow):
             self.map_center['lon'] = self.drone_position['lon']
             self.draw_map()
             
-    def update_map(self):
+    def throttled_map_update(self):
+        """Throttle map updates to prevent performance issues"""
+        current_time = time.time() * 1000  # Convert to milliseconds
+        
+        if current_time - self.last_map_update < self.map_update_interval:
+            # Too soon since last update, schedule for later
+            if not self.pending_map_update:
+                self.pending_map_update = True
+                remaining_time = int(self.map_update_interval - (current_time - self.last_map_update))
+                self.map_update_timer.start(max(100, remaining_time))  # Minimum 100ms delay
+        else:
+            # Enough time has passed, update now
+            self.perform_map_update()
+    
+    def perform_map_update(self):
+        """Actually perform the map update"""
+        self.last_map_update = time.time() * 1000
+        self.pending_map_update = False
         self.draw_map()
         
     def arm_drone(self):
