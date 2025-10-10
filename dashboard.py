@@ -162,22 +162,35 @@ class DroneGCSDashboard(QMainWindow):
         main_layout.setSpacing(5)
         main_layout.setContentsMargins(5, 5, 5, 5)
         
-        # Top control bar (compact)
+        # Top control bar (compact) - all controls on left side
         top_layout = QHBoxLayout()
         self.setup_connection_panel(top_layout)
         self.setup_mission_control_panel(top_layout)
-        self.setup_top_telemetry_panel(top_layout)  # Add telemetry to top right
+        self.setup_top_telemetry_panel(top_layout)
+        top_layout.addStretch()  # Push everything to left, leaving right side empty
         main_layout.addLayout(top_layout)
         
-        # Main content area
+        # Main content area - vertical layout to stack right panel above map controls
         content_layout = QHBoxLayout()
         content_layout.setSpacing(5)
         
         # Left side: Large map
         self.setup_map_panel(content_layout)
         
-        # Right side: Tabbed interface
-        self.setup_tabbed_panels(content_layout)
+        # Right side: Vertical layout with tabbed interface at top and map controls at bottom
+        right_side_layout = QVBoxLayout()
+        
+        # Tabbed interface at top
+        self.setup_tabbed_panels(right_side_layout)
+        
+        # Map controls at bottom (moved from beside map to under tabbed panels)
+        self.setup_map_controls_panel(right_side_layout)
+        
+        # Add right side container to main content
+        right_container = QWidget()
+        right_container.setLayout(right_side_layout)
+        right_container.setFixedWidth(350)
+        content_layout.addWidget(right_container)
         
         main_layout.addLayout(content_layout)
         
@@ -268,7 +281,7 @@ class DroneGCSDashboard(QMainWindow):
     
     def setup_top_telemetry_panel(self, parent):
         telem_frame = QFrame()
-        telem_frame.setFixedWidth(300)
+        telem_frame.setFixedWidth(450)  # Increased to 1.5x (300 * 1.5 = 450)
         parent.addWidget(telem_frame)
         
         layout = QVBoxLayout(telem_frame)
@@ -310,47 +323,33 @@ class DroneGCSDashboard(QMainWindow):
         layout.addWidget(data_widget)
         
     def setup_map_panel(self, parent):
+        # Large map (no title, expanded size) - takes full left side
         map_frame = QFrame()
         parent.addWidget(map_frame)
         
-        layout = QVBoxLayout(map_frame)
-        layout.setContentsMargins(15, 15, 15, 15)
+        map_layout = QVBoxLayout(map_frame)
+        map_layout.setContentsMargins(5, 5, 5, 5)
         
-        # Title
-        title = QLabel("Interactive Mission Map")
-        title.setFont(QFont("Arial", 12, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-        
-        # Map graphics view
+        # Map graphics view (increased size, no title)
         self.map_view = QGraphicsView()
-        self.map_view.setMinimumSize(600, 400)
+        self.map_view.setMinimumSize(800, 600)  # Increased from 600x400
         self.map_scene = QGraphicsScene()
         self.map_view.setScene(self.map_scene)
         self.map_view.setRenderHint(QPainter.Antialiasing)
+        
+        # Set up mouse events for both waypoint placement and panning
         self.map_view.mousePressEvent = self.map_mouse_press
-        layout.addWidget(self.map_view)
+        self.map_view.mouseMoveEvent = self.map_mouse_move
+        self.map_view.mouseReleaseEvent = self.map_mouse_release
         
-        # Map controls
-        controls_layout = QHBoxLayout()
+        # Pan state tracking
+        self.is_panning = False
+        self.last_pan_point = None
         
-        clear_btn = QPushButton("Clear Waypoints")
-        clear_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['warning']}; }}")
-        clear_btn.clicked.connect(self.clear_waypoints)
-        controls_layout.addWidget(clear_btn)
+        # Enable drag mode for panning
+        self.map_view.setDragMode(QGraphicsView.NoDrag)
         
-        center_btn = QPushButton("Center on Drone")
-        center_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['accent']}; }}")
-        center_btn.clicked.connect(self.center_on_drone)
-        controls_layout.addWidget(center_btn)
-        
-        controls_layout.addStretch()
-        layout.addLayout(controls_layout)
-        
-        # Waypoint list
-        self.waypoint_listbox = QListWidget()
-        self.waypoint_listbox.setMaximumHeight(80)
-        layout.addWidget(self.waypoint_listbox)
+        map_layout.addWidget(self.map_view)
         
         self.draw_map()
         
@@ -369,6 +368,44 @@ class DroneGCSDashboard(QMainWindow):
         mission_tab = QWidget()
         tab_widget.addTab(mission_tab, "Mission")
         self.setup_mission_tab_panel(mission_tab)
+    
+    def setup_map_controls_panel(self, parent):
+        # Map controls panel (now under tabbed panels)
+        controls_frame = QFrame()
+        controls_frame.setFixedWidth(350)
+        controls_frame.setMaximumHeight(200)
+        parent.addWidget(controls_frame)
+        
+        controls_layout = QVBoxLayout(controls_frame)
+        controls_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Controls title
+        controls_title = QLabel("Map Controls")
+        controls_title.setFont(QFont("Arial", 10, QFont.Bold))
+        controls_title.setAlignment(Qt.AlignCenter)
+        controls_layout.addWidget(controls_title)
+        
+        # Control buttons
+        clear_btn = QPushButton("Clear Waypoints")
+        clear_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['warning']}; }}")
+        clear_btn.clicked.connect(self.clear_waypoints)
+        controls_layout.addWidget(clear_btn)
+        
+        center_btn = QPushButton("Center on Drone")
+        center_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['accent']}; }}")
+        center_btn.clicked.connect(self.center_on_drone)
+        controls_layout.addWidget(center_btn)
+        
+        # Waypoint list
+        waypoint_label = QLabel("Waypoints:")
+        waypoint_label.setFont(QFont("Arial", 9, QFont.Bold))
+        controls_layout.addWidget(waypoint_label)
+        
+        self.waypoint_listbox = QListWidget()
+        self.waypoint_listbox.setMaximumHeight(80)
+        controls_layout.addWidget(self.waypoint_listbox)
+        
+        controls_layout.addStretch()
         
     def setup_telemetry_panel(self, parent):
         layout = QVBoxLayout(parent)
@@ -711,11 +748,39 @@ class DroneGCSDashboard(QMainWindow):
         self.map_scene.clear()
         
         # Draw grid
-        width = 600
-        height = 400
+        width = 800  # Updated to match new map size
+        height = 600  # Updated to match new map size  
         
         # Set scene rect
         self.map_scene.setSceneRect(0, 0, width, height)
+        
+        # Add background image if available
+        try:
+            from PyQt5.QtGui import QPixmap
+            from PyQt5.QtWidgets import QGraphicsPixmapItem
+            
+            # Try to load background image from root folder
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            bg_path = os.path.join(current_dir, "back.png")
+            
+            if os.path.exists(bg_path):
+                pixmap = QPixmap(bg_path)
+                # Scale the image to 2.5x the map area for panning capability
+                zoom_factor = 2.5
+                scaled_width = int(width * zoom_factor)
+                scaled_height = int(height * zoom_factor)
+                scaled_pixmap = pixmap.scaled(scaled_width, scaled_height, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                bg_item = QGraphicsPixmapItem(scaled_pixmap)
+                # Center the zoomed image so panning can reveal different areas
+                bg_item.setPos(-scaled_width//4, -scaled_height//4)  # Offset to center the larger image
+                bg_item.setZValue(-1)  # Put background behind everything else
+                self.map_scene.addItem(bg_item)
+                
+                # Expand scene rect to accommodate the larger background for panning
+                self.map_scene.setSceneRect(-scaled_width//4, -scaled_height//4, scaled_width, scaled_height)
+        except Exception as e:
+            # If background loading fails, continue without it
+            pass
         
         # Draw grid lines (50 pixels = 20 meters)
         grid_pen = QPen(QColor(self.colors['divider']), 1)
@@ -789,8 +854,8 @@ class DroneGCSDashboard(QMainWindow):
     def lat_lon_to_pixels(self, lat, lon):
         # Convert GPS coordinates to pixels with 20m grid squares
         # Each 50-pixel grid square represents 20m x 20m in real world
-        width = 600
-        height = 400
+        width = 800  # Updated to match new map size
+        height = 600  # Updated to match new map size
         
         # Simplified conversion: 1 degree ≈ 111,320 meters
         # For small distances, we can use approximate conversion
@@ -810,8 +875,8 @@ class DroneGCSDashboard(QMainWindow):
     def pixels_to_lat_lon(self, x, y):
         # Convert pixels back to GPS coordinates  
         # For simulation, use much smaller GPS coordinate changes
-        width = 600
-        height = 400
+        width = 800  # Updated to match new map size
+        height = 600  # Updated to match new map size
         
         # Calculate pixel differences from center
         pixel_x_diff = x - width/2
@@ -838,6 +903,32 @@ class DroneGCSDashboard(QMainWindow):
             # Convert view coordinates to scene coordinates
             scene_pos = self.map_view.mapToScene(event.pos())
             self.add_waypoint_at_pos(scene_pos.x(), scene_pos.y())
+        elif event.button() == Qt.RightButton:
+            # Start panning
+            self.is_panning = True
+            self.last_pan_point = event.pos()
+            self.map_view.setCursor(Qt.ClosedHandCursor)
+    
+    def map_mouse_move(self, event):
+        if self.is_panning and self.last_pan_point is not None:
+            # Calculate pan delta
+            delta = event.pos() - self.last_pan_point
+            self.last_pan_point = event.pos()
+            
+            # Get current scrollbar values
+            h_scroll = self.map_view.horizontalScrollBar()
+            v_scroll = self.map_view.verticalScrollBar()
+            
+            # Update scrollbar positions (negative delta for natural panning)
+            h_scroll.setValue(h_scroll.value() - delta.x())
+            v_scroll.setValue(v_scroll.value() - delta.y())
+    
+    def map_mouse_release(self, event):
+        if event.button() == Qt.RightButton:
+            # Stop panning
+            self.is_panning = False
+            self.last_pan_point = None
+            self.map_view.setCursor(Qt.ArrowCursor)
         
     def add_waypoint_at_pos(self, x, y):
         lat, lon = self.pixels_to_lat_lon(x, y)
