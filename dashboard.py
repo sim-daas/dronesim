@@ -303,14 +303,7 @@ class DroneGCSDashboard(QMainWindow):
         layout = QVBoxLayout(map_controls_frame)
         layout.setContentsMargins(8, 2, 8, 2)  # Reduced height margins
         
-        # Title (reduced height)
-        title = QLabel("Map Controls")
-        title.setFont(QFont("Arial", 9, QFont.Bold))  # Slightly smaller font
-        title.setAlignment(Qt.AlignCenter)
-        title.setMaximumHeight(15)  # Limit title height
-        layout.addWidget(title)
-        
-        # Buttons layout (vertical)
+        # Buttons layout (vertical) - removed title
         # Clear waypoints button
         clear_btn = QPushButton("Clear Waypoints")
         clear_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['warning']}; min-width: 100px; min-height: 18px; }}")
@@ -349,13 +342,16 @@ class DroneGCSDashboard(QMainWindow):
         self.map_view.mousePressEvent = self.map_mouse_press
         self.map_view.mouseMoveEvent = self.map_mouse_move
         self.map_view.mouseReleaseEvent = self.map_mouse_release
-        
+        self.map_view.wheelEvent = self.map_wheel_event  # Add scroll wheel zoom
         # Pan state tracking
         self.is_panning = False
         self.last_pan_point = None
         
         # Enable drag mode for panning
         self.map_view.setDragMode(QGraphicsView.NoDrag)
+        
+        # Zoom tracking
+        self.zoom_level = 1.0
         
         map_layout.addWidget(self.map_view)
         
@@ -598,7 +594,7 @@ class DroneGCSDashboard(QMainWindow):
                 border: 1px solid {self.colors['divider']};
             }}
         """)
-        self.system_status.setMaximumHeight(150)
+        self.system_status.setMaximumHeight(250)  # Increased from 150 to 250
         layout.addWidget(self.system_status)
         
         layout.addStretch()
@@ -904,7 +900,35 @@ class DroneGCSDashboard(QMainWindow):
             self.is_panning = False
             self.last_pan_point = None
             self.map_view.setCursor(Qt.ArrowCursor)
+    
+    def map_wheel_event(self, event):
+        # Zoom functionality using scroll wheel
+        zoom_in_factor = 1.25
+        zoom_out_factor = 1 / zoom_in_factor
         
+        # Get scroll direction
+        angle_delta = event.angleDelta().y()
+        
+        if angle_delta > 0:
+            # Scroll up - zoom in
+            zoom_factor = zoom_in_factor
+            self.zoom_level *= zoom_factor
+        else:
+            # Scroll down - zoom out
+            zoom_factor = zoom_out_factor  
+            self.zoom_level *= zoom_factor
+            
+        # Limit zoom levels
+        if self.zoom_level > 5.0:
+            self.zoom_level = 5.0
+            return
+        elif self.zoom_level < 0.2:
+            self.zoom_level = 0.2
+            return
+            
+        # Apply zoom transformation
+        self.map_view.scale(zoom_factor, zoom_factor)
+    
     def add_waypoint_at_pos(self, x, y):
         lat, lon = self.pixels_to_lat_lon(x, y)
         alt = float(self.mission_alt_entry.text())
