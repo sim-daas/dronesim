@@ -3,6 +3,8 @@
 ## Overview
 This system implements a complete autonomous drone mission workflow with battery simulation and precision landing recovery.
 
+[![Demo Video](https://img.youtube.com/vi/<video_id>/0.jpg)](https://www.youtube.com/watch?v=fPyEu_ca69Q)
+
 ## Workflow
 
 ### 1. Mission Execution (dashboard.py → mission.py)
