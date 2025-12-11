@@ -572,12 +572,6 @@ class DroneGCSDashboard(QMainWindow):
         self.execute_mission_btn.clicked.connect(self.execute_mission)
         mission_controls.addWidget(self.execute_mission_btn)
         
-        # Test hardcoded mission button
-        test_mission_btn = QPushButton("Test 5m Square Mission")
-        test_mission_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['success']}; min-height: 30px; }}")
-        test_mission_btn.clicked.connect(self.test_hardcoded_mission)
-        mission_controls.addWidget(test_mission_btn)
-        
         # Debug button
         debug_btn = QPushButton("Debug Mission System")
         debug_btn.setStyleSheet(f"QPushButton {{ background-color: {self.colors['info']}; min-height: 25px; font-size: 8pt; }}")
@@ -610,7 +604,7 @@ class DroneGCSDashboard(QMainWindow):
                 border: 1px solid {self.colors['divider']};
             }}
         """)
-        self.system_status.setMaximumHeight(250)  # Increased from 150 to 250
+        self.system_status.setMaximumHeight(400)  # Increased from 250 to 400
         layout.addWidget(self.system_status)
         
         layout.addStretch()
@@ -1572,110 +1566,56 @@ class DroneGCSDashboard(QMainWindow):
             self.log_message(f"RTL failed: {str(e)}")
             
     def open_camera_window(self):
-        """Open camera feed in a separate window"""
-        self.camera_window = CameraWindow(self)
-        self.camera_window.show()
-        self.log_message("Camera window opened")
-        
+        """Open camera feed using RQt image viewer"""
+        try:
+            self.log_message("Launching RQt image viewer...")
+            
+            # Launch rqt_image_view as a subprocess with proper command splitting
+            rqt_process = subprocess.Popen(
+                ["ros2", "run", "rqt_image_view", "rqt_image_view"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            # Wait briefly to check if process started successfully
+            import time
+            time.sleep(0.5)
+            
+            # Check if process is still running
+            if rqt_process.poll() is not None:
+                # Process already exited, capture error
+                stdout, stderr = rqt_process.communicate()
+                error_msg = stderr if stderr else stdout
+                raise Exception(f"RQt viewer failed to start:\n{error_msg}")
+            
+            self.log_message("✓ RQt image viewer launched")
+            self.log_message("Select camera topic in RQt to view feed")
+            
+        except FileNotFoundError as e:
+            error_details = str(e)
+            self.log_message(f"✗ rqt_image_view not found: {error_details}")
+            QMessageBox.warning(
+                self,
+                "RQt Not Found",
+                f"rqt_image_view not installed or ROS2 not sourced.\n\n"
+                f"Error: {error_details}\n\n"
+                f"Install with:\nsudo apt install ros-humble-rqt-image-view\n"
+                f"(or your ROS distro)\n\n"
+                f"Make sure ROS2 is sourced:\nsource /opt/ros/humble/setup.bash"
+            )
+        except Exception as e:
+            error_msg = str(e)
+            self.log_message(f"✗ Failed to launch RQt viewer: {error_msg}")
+            QMessageBox.critical(
+                self, 
+                "Error", 
+                f"Failed to launch RQt viewer:\n\n{error_msg}"
+            )
+
     def apply_parameters(self):
         self.log_message("Parameters applied")
         
-    def test_hardcoded_mission(self):
-        """Test with a hardcoded 5m square mission"""
-        if not self.connected:
-            QMessageBox.warning(self, "Warning", "Not connected to drone!")
-            return
-        if not self.event_loop:
-            QMessageBox.critical(self, "Error", "Event loop not running. Connect to the drone first.")
-            return
-            
-        self.log_message("Testing hardcoded 5m square mission...")
-        if hasattr(self, 'mission_status'):
-            self.mission_status.setText("Uploading test mission...")
-        asyncio.run_coroutine_threadsafe(self._test_hardcoded_mission_async(), self.event_loop)
-        
-    async def _test_hardcoded_mission_async(self):
-        """Upload a hardcoded 5m square mission"""
-        try:
-            from mavsdk.mission import MissionItem, MissionPlan
-            
-            self.log_message("=== Starting Hardcoded Mission Test ===")
-            
-            # Use PX4 SITL default location  
-            home_lat = 47.3977
-            home_lon = 8.5456
-            home_alt = 10.0
-            
-            self.log_message(f"Using default position: {home_lat:.6f}, {home_lon:.6f}")
-            
-            # Clear existing mission
-            await self.drone.mission.clear_mission()
-            self.log_message("✓ Cleared existing mission")
-            
-            # Create 5m square waypoints (approximately 0.000045 degrees = ~5m)
-            offset = 0.000045
-            
-            waypoints = [
-                {'lat': home_lat, 'lon': home_lon, 'alt': home_alt, 'name': 'Start'},
-                {'lat': home_lat + offset, 'lon': home_lon, 'alt': home_alt, 'name': 'North'},
-                {'lat': home_lat + offset, 'lon': home_lon + offset, 'alt': home_alt, 'name': 'NE'}, 
-                {'lat': home_lat, 'lon': home_lon + offset, 'alt': home_alt, 'name': 'East'},
-                {'lat': home_lat, 'lon': home_lon, 'alt': home_alt, 'name': 'Home'}
-            ]
-            
-            # Create mission items
-            mission_items = []
-            
-            for i, wp in enumerate(waypoints):
-                mission_item = MissionItem(
-                    wp['lat'],                          # latitude_deg
-                    wp['lon'],                          # longitude_deg  
-                    wp['alt'],                          # relative_altitude_m
-                    3.0,                                # speed_m_s (slow for testing)
-                    True,                               # is_fly_through
-                    float('nan'),                       # gimbal_pitch_deg
-                    float('nan'),                       # gimbal_yaw_deg
-                    MissionItem.CameraAction.NONE,     # camera_action
-                    float('nan'),                       # loiter_time_s
-                    float('nan'),                       # camera_photo_interval_s
-                    1.0,                                # acceptance_radius_m (tight for testing)
-                    float('nan'),                       # yaw_deg
-                    float('nan'),                       # camera_photo_distance_m
-                    MissionItem.VehicleAction.NONE      # vehicle_action (required parameter)
-                )
-                mission_items.append(mission_item)
-                self.log_message(f"✓ Created waypoint {i+1} ({wp['name']}): {wp['lat']:.6f}, {wp['lon']:.6f}, {wp['alt']}m")
-            
-            # Create and upload mission plan
-            mission_plan = MissionPlan(mission_items)
-            self.log_message(f"✓ Created mission plan with {len(mission_items)} waypoints")
-            
-            # Upload to drone
-            self.log_message("Uploading hardcoded mission to drone...")
-            await self.drone.mission.upload_mission(mission_plan)
-            self.log_message("✓ Hardcoded mission uploaded successfully!")
-            
-            # Verify upload
-            try:
-                downloaded_mission = await self.drone.mission.download_mission()
-                self.log_message(f"✓ Mission verification: {len(downloaded_mission.mission_items)} items on drone")
-            except Exception as e:
-                self.log_message(f"⚠️ Mission verification failed: {str(e)}")
-            
-            # Update UI
-            if hasattr(self, 'mission_status'):
-                QTimer.singleShot(0, lambda: self.mission_status.setText("Test mission uploaded! (5m square)"))
-            self.log_message("=== Hardcoded Mission Test Complete ===")
-            
-        except Exception as e:
-            error_msg = f"Hardcoded mission test failed: {str(e)}"
-            self.log_message(error_msg)
-            if hasattr(self, 'mission_status'):
-                QTimer.singleShot(0, lambda: self.mission_status.setText("Test mission failed!"))
-                QTimer.singleShot(0, lambda: QMessageBox.critical(
-                    self, "Test Mission Error", error_msg
-                ))
-
     def debug_mission_button(self):
         """Debug mission system - callable from UI"""
         if self.connected and self.event_loop:
@@ -1727,103 +1667,10 @@ class DroneGCSDashboard(QMainWindow):
             
     def closeEvent(self, event):
         self.running = False
+       
         if self.connected:
             self.disconnect_mavlink()
         event.accept()
-
-
-class CameraWindow(QMainWindow):
-    def __init__(self, parent_dashboard):
-        super().__init__()
-        self.parent_dashboard = parent_dashboard
-        self.setWindowTitle("Live Camera Feed")
-        self.setGeometry(200, 200, 800, 600)
-        
-        # Apply same color scheme as main dashboard
-        self.setStyleSheet(f"""
-            QMainWindow {{
-                background-color: {parent_dashboard.colors['background']};
-                color: {parent_dashboard.colors['primary_text']};
-            }}
-            QWidget {{
-                background-color: {parent_dashboard.colors['background']};
-                color: {parent_dashboard.colors['primary_text']};
-                font-family: 'Segoe UI', Arial, sans-serif;
-            }}
-            QPushButton {{
-                background-color: {parent_dashboard.colors['accent']};
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-                min-height: 20px;
-            }}
-            QPushButton:hover {{
-                background-color: {parent_dashboard.colors['hover']};
-            }}
-            QLabel {{
-                color: {parent_dashboard.colors['primary_text']};
-            }}
-        """)
-        
-        self.setup_camera_ui()
-        
-    def setup_camera_ui(self):
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        
-        layout = QVBoxLayout(central_widget)
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        # Title
-        title = QLabel("FPV Camera Feed")
-        title.setFont(QFont("Arial", 14, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-        
-        # Video display area (large)
-        self.video_view = QGraphicsView()
-        self.video_view.setMinimumSize(760, 480)
-        self.video_scene = QGraphicsScene()
-        self.video_view.setScene(self.video_scene)
-        self.video_view.setStyleSheet(f"""
-            QGraphicsView {{
-                background-color: black;
-                border: 2px solid {self.parent_dashboard.colors['divider']};
-                border-radius: 8px;
-            }}
-        """)
-        
-        # Video placeholder text
-        placeholder_text = QGraphicsTextItem("Live FPV Video Feed\n\nCamera not connected\nConnect camera source to view feed")
-        placeholder_text.setDefaultTextColor(QColor("white"))
-        placeholder_text.setFont(QFont("Arial", 16))
-        placeholder_text.setPos(200, 200)
-        self.video_scene.addItem(placeholder_text)
-        
-        layout.addWidget(self.video_view)
-        
-        # Controls
-        controls_layout = QHBoxLayout()
-        
-        record_btn = QPushButton("Start Recording")
-        record_btn.setStyleSheet(f"QPushButton {{ background-color: {self.parent_dashboard.colors['warning']}; }}")
-        controls_layout.addWidget(record_btn)
-        
-        snapshot_btn = QPushButton("Take Snapshot")
-        snapshot_btn.setStyleSheet(f"QPushButton {{ background-color: {self.parent_dashboard.colors['info']}; }}")
-        controls_layout.addWidget(snapshot_btn)
-        
-        controls_layout.addStretch()
-        
-        close_btn = QPushButton("Close")
-        close_btn.setStyleSheet(f"QPushButton {{ background-color: {self.parent_dashboard.colors['warning']}; }}")
-        close_btn.clicked.connect(self.close)
-        controls_layout.addWidget(close_btn)
-        
-        layout.addLayout(controls_layout)
-
 
 def main():
     app = QApplication(sys.argv)

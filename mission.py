@@ -81,6 +81,7 @@ class SimpleMissionExecutor:
                 return False
             
             print(f"Creating mission with {len(waypoints)} waypoints...")
+            print("📍 Implementing automatic loop (100 repetitions) for continuous mission until battery low...")
             
             # Check drone status before uploading mission
             print("Checking drone status...")
@@ -100,9 +101,30 @@ class SimpleMissionExecutor:
             await self.drone.mission.clear_mission()
             print("✓ Existing mission cleared")
             
+            # Create looped waypoints: repeat user waypoints 100 times
+            # This creates an effective loop until battery interruption
+            looped_waypoints = []
+            
+            # Add first waypoint (takeoff position) only once
+            if len(waypoints) > 0:
+                looped_waypoints.append(waypoints[0])
+                print(f"  Initial WP: {waypoints[0]['lat']:.6f}, {waypoints[0]['lon']:.6f}, {waypoints[0]['alt']}m")
+            
+            # Repeat the remaining waypoints 100 times
+            mission_waypoints = waypoints[1:] if len(waypoints) > 1 else waypoints
+            
+            for loop_num in range(100):
+                for wp in mission_waypoints:
+                    looped_waypoints.append(wp)
+            
+            print(f"✓ Mission expanded to {len(looped_waypoints)} waypoints (100 loops)")
+            print(f"  - Original waypoints: {len(waypoints)}")
+            print(f"  - Looped waypoints: {len(mission_waypoints)} × 100 = {len(mission_waypoints) * 100}")
+            print(f"  - Total with initial position: {len(looped_waypoints)}")
+            
             # Create mission items
             mission_items = []
-            for i, wp in enumerate(waypoints):
+            for i, wp in enumerate(looped_waypoints):
                 mission_item = MissionItem(
                     float(wp['lat']),                   # latitude_deg
                     float(wp['lon']),                   # longitude_deg
@@ -120,7 +142,12 @@ class SimpleMissionExecutor:
                     MissionItem.VehicleAction.NONE      # vehicle_action (required parameter)
                 )
                 mission_items.append(mission_item)
-                print(f"  WP{i+1}: {wp['lat']:.6f}, {wp['lon']:.6f}, {wp['alt']}m")
+                
+                # Log first few and last few waypoints
+                if i < 3 or i >= len(looped_waypoints) - 3:
+                    print(f"  WP{i+1}: {wp['lat']:.6f}, {wp['lon']:.6f}, {wp['alt']}m")
+                elif i == 3:
+                    print(f"  ... ({len(looped_waypoints) - 6} more waypoints) ...")
             
             # Upload mission
             print("Uploading mission to drone...")
@@ -150,9 +177,10 @@ class SimpleMissionExecutor:
             await self.drone.mission.start_mission()
             print("✓ Mission started successfully")
             
-            # Generate random mission duration (20-40 seconds)
-            mission_duration = random.randint(20, 40)
-            print(f"🎲 Mission will run for {mission_duration} seconds (simulating battery/interruption)")
+            # Generate random mission duration (60-80 seconds) to simulate battery interruption
+            mission_duration = random.randint(60, 80)
+            print(f"🎲 Mission will run for {mission_duration} seconds (simulating battery interruption)")
+            print(f"📍 With 100 loops, mission will continue until battery threshold or timeout")
             
             # Monitor progress with timeout
             await self.monitor_mission_with_timeout(mission_duration)
