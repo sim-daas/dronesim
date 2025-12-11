@@ -856,17 +856,17 @@ class DroneGCSDashboard(QMainWindow):
         for i, wp in enumerate(self.waypoints):
             x, y = self.lat_lon_to_pixels(wp['lat'], wp['lon'])
             
-            # Waypoint circle
-            waypoint_item = QGraphicsEllipseItem(x-5, y-5, 10, 10)
+            # Waypoint circle (reduced to half size)
+            waypoint_item = QGraphicsEllipseItem(x-1.5, y-1.5, 3, 3)
             waypoint_item.setBrush(QBrush(QColor(self.colors['warning'])))
-            waypoint_item.setPen(QPen(QColor("#c0392b"), 2))
+            waypoint_item.setPen(QPen(QColor("#c0392b"), 1))
             self.map_scene.addItem(waypoint_item)
             
             # Waypoint label
             label_item = QGraphicsTextItem(f"WP{i+1}")
-            label_item.setPos(x+15, y-20)
+            label_item.setPos(x-7, y-10)
             label_item.setDefaultTextColor(QColor(self.colors['primary_text']))
-            label_item.setFont(QFont("Arial", 8))
+            label_item.setFont(QFont("Arial", 2))
             self.map_scene.addItem(label_item)
             
         # Draw drone position
@@ -896,17 +896,17 @@ class DroneGCSDashboard(QMainWindow):
                 self.log_message(f"Background center scene: ({bg_center_x}, {bg_center_y})")
                 self.log_message(f"Drone scene position: ({x}, {y})")
             
-            # Drone circle
-            drone_item = QGraphicsEllipseItem(x-8, y-8, 16, 16)
+            # Drone circle (reduced to radius 2)
+            drone_item = QGraphicsEllipseItem(x-1, y-1, 2, 2)
             drone_item.setBrush(QBrush(QColor(self.colors['accent'])))
-            drone_item.setPen(QPen(QColor("#2980b9"), 3))
+            drone_item.setPen(QPen(QColor("#2980b9"), 1))
             self.map_scene.addItem(drone_item)
             
-            # Drone label
+            # Drone label (adjusted position and smaller font)
             drone_label = QGraphicsTextItem("D")
-            drone_label.setPos(x-4, y-8)
+            drone_label.setPos(x-5, y-6)
             drone_label.setDefaultTextColor(QColor("white"))
-            drone_label.setFont(QFont("Arial", 10, QFont.Bold))
+            drone_label.setFont(QFont("Arial", 2, QFont.Bold))
             self.map_scene.addItem(drone_label)
             
     def lat_lon_to_pixels(self, lat, lon):

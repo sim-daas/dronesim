@@ -178,7 +178,7 @@ class SimpleMissionExecutor:
             print("✓ Mission started successfully")
             
             # Generate random mission duration (60-80 seconds) to simulate battery interruption
-            mission_duration = random.randint(60, 80)
+            mission_duration = random.randint(40, 80)
             print(f"🎲 Mission will run for {mission_duration} seconds (simulating battery interruption)")
             print(f"📍 With 100 loops, mission will continue until battery threshold or timeout")
             
