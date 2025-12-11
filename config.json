@@ -1,0 +1,35 @@
+{
+    "drones": [
+        {
+            "id": 0,
+            "role": "primary",
+            "connection": "udp://:14540",
+            "ros2_namespace": "/px4_0",
+            "camera_topic": "/camera/image_raw",
+            "home_position": {
+                "lat": 47.3977,
+                "lon": 8.5456,
+                "alt": 10.0
+            }
+        },
+        {
+            "id": 1,
+            "role": "backup",
+            "connection": "udp://:14541",
+            "ros2_namespace": "/px4_1",
+            "camera_topic": "/camera_1/image_raw",
+            "home_position": {
+                "lat": 47.3978,
+                "lon": 8.5457,
+                "alt": 10.0
+            }
+        }
+    ],
+    "fleet_settings": {
+        "battery_handoff_threshold": 25,
+        "emergency_rtl_threshold": 15,
+        "max_drones_in_air": 2,
+        "handoff_altitude": 10.0,
+        "mission_speed": 5.0
+    }
+}
