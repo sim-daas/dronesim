@@ -4,6 +4,7 @@ import threading
 import time
 import math
 import numpy as np
+import argparse
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QGridLayout, QPushButton, QLabel, 
                              QLineEdit, QTextEdit, QListWidget, QFrame, 
@@ -18,17 +19,18 @@ import json
 import os
 
 class DroneGCSDashboard(QMainWindow):
-    def __init__(self):
+    def __init__(self, port=14540, sysid=1):
         super().__init__()
         self.setWindowTitle("Custom Drone GCS Dashboard")
         self.setGeometry(100, 100, 1400, 900)
         
         # MAVSDK connection
-        self.drone = System()
+        self.drone = System(sysid=sysid)  # Connect to drone with specified MAV_SYS_ID
         self.connected = False
         self.telemetry_thread = None
         self.running = False
         self.event_loop = None
+        self.mavsdk_port = port  # Store the port
         
         # Mission data
         self.waypoints = []
@@ -611,8 +613,8 @@ class DroneGCSDashboard(QMainWindow):
 
     def connect_mavlink(self):
         try:
-            # Default connection for PX4 SITL
-            mavsdk_address = "udp://:14540"
+            # Use the port from initialization
+            mavsdk_address = f"udp://:{self.mavsdk_port}"
             
             # Start connection in thread
             self.telemetry_thread = threading.Thread(
@@ -1673,8 +1675,16 @@ class DroneGCSDashboard(QMainWindow):
         event.accept()
 
 def main():
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Drone GCS Dashboard')
+    parser.add_argument('--port', type=int, default=14540, 
+                        help='MAVSDK UDP port (default: 14540)')
+    parser.add_argument('--sysid', type=int, default=1,
+                        help='MAV System ID (default: 1)')
+    args = parser.parse_args()
+    
     app = QApplication(sys.argv)
-    window = DroneGCSDashboard()
+    window = DroneGCSDashboard(port=args.port, sysid=args.sysid)
     window.show()
     sys.exit(app.exec_())
 
