@@ -19,13 +19,13 @@ import json
 import os
 
 class DroneGCSDashboard(QMainWindow):
-    def __init__(self, port=14540, sysid=1):
+    def __init__(self, port=14540, sysid=1, grpc_port=50051):
         super().__init__()
         self.setWindowTitle("Custom Drone GCS Dashboard")
         self.setGeometry(100, 100, 1400, 900)
         
         # MAVSDK connection
-        self.drone = System(sysid=sysid)  # Connect to drone with specified MAV_SYS_ID
+        self.drone = System(sysid=sysid, port=grpc_port)  # Connect to drone with specified MAV_SYS_ID
         self.connected = False
         self.telemetry_thread = None
         self.running = False
@@ -1681,10 +1681,12 @@ def main():
                         help='MAVSDK UDP port (default: 14540)')
     parser.add_argument('--sysid', type=int, default=1,
                         help='MAV System ID (default: 1)')
+    parser.add_argument('--grpc-port', type=int, default=50051,
+                        help='Unique gRPC port for MAVSDK server (default: 50051)')
     args = parser.parse_args()
     
     app = QApplication(sys.argv)
-    window = DroneGCSDashboard(port=args.port, sysid=args.sysid)
+    window = DroneGCSDashboard(port=args.port, sysid=args.sysid, grpc_port=args.grpc_port)
     window.show()
     sys.exit(app.exec_())
 
