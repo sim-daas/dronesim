@@ -1,0 +1,34 @@
+﻿Feature Specification: 24/7 Autonomous Surveillance & Battery Swapping Ecosystem
+This document outlines the finalized feature set for an autonomous, multi-drone surveillance system designed for persistent deployment with precision landing and mobile battery-swapping capabilities.
+1. Multi-Drone Fleet Management & Swarm Coordination
+* Swarm Orchestration: Capability to simulate and control multiple drones simultaneously with coordinated behaviors to avoid inter-drone conflicts.
+* Individual State Tracking: Each unit maintains a local copy of its mission state, battery telemetry, and navigation logic while synchronizing with a centralized fleet controller.
+* Collision Deconfliction: Real-time spatial management to ensure drones do not cross paths at the same altitude, particularly during takeoff, landing, and handover phases.
+2. Dynamic "Relay Race" Handover (Persistent Deployment)
+* Zero-Downtime Surveillance: The system ensures at least one drone (or the required number of drones) is active in the patrol zone at all times.
+* Active Handover Logic: A low-battery drone will not leave its station until the replacement drone enters the designated "Active Sector" and broadcasts a "Mission Acquired" signal.
+* Vertical Buffering: During the swap, drones utilize telemetry-based altitude separation to safely bypass each other within the same GPS coordinates.
+3. Precision Landing on Mobile/Relocatable Bases
+* Active-Vision (STag) Docking: Utilizes a Jetson Nano-powered vision suite to detect nested Fractal STag markers. This provides centimeter-level accuracy even if the base station has relocated or is mounted on a vehicle.
+* Hunting Mode: Drones update the charging pad’s coordinates in real-time via GPS telemetry. Once in range, the drone transitions from GPS guidance to Vision-based Pose Estimation.
+* Motion Prediction: Implementation of Kalman filters to predict the trajectory of the landing pad if it is attached to a moving vehicle (e.g., a truck).
+4. Environmental Adaptive Energy & Health Modeling
+* Wind-Aware Estimation: Before and during flight, the system calculates energy usage based on real-time "Cost of Transport." It measures current draw vs. ground speed to account for headwind resistance.
+* Dynamic Mission Scaling: If high winds are detected, the system automatically shrinks patrol radii or speeds up the "Return to Charge" trigger to prevent mid-air battery failures.
+* Battery Degradation Tracking: Simulates and monitors internal resistance and capacity loss over multiple cycles, automatically retiring "unhealthy" units from high-priority missions.
+5. Intelligent Mission Planning & Dashboard
+* Polygon/Area Selection: Users can pan/zoom on a map to select regions. The system supports predefined shapes (circles, squares) or custom polygons.
+* Automated Path Tiling:
+   * N-Drone Split: Automatically divides a selected region into n optimized sub-zones (quadrants) based on the number of deployed drones.
+   * Path Fill Options: Users can select coverage styles such as "Criss-Cross," "Lawnmower," "Spiral," or "Dense Inspection."
+   * Randomized Patrol: Optional logic to randomize waypoints within a quadrant to make surveillance patterns unpredictable for ground observers.
+6. Two-Tier Obstacle Avoidance System
+* Global Path Planning (A):* Navigates the broad mission area using a pre-mapped database of static obstacles (buildings, trees, towers).
+* Local Reactive Planning: A secondary layer (e.g., Vector Field Histogram) using onboard sensors to swerve around dynamic obstacles like birds, other drones, or new temporary structures.
+7. AI-Driven Emergency Fail-Safes
+* Semantic "Safe-Surface" Landing: If the mobile base is unreachable (signal loss or critical battery), the Jetson Nano runs a segmentation model to identify safe landing zones (e.g., grass/pavement) vs. danger zones (water/roads/people).
+* Virtual Landing Queue: If multiple drones return to the base simultaneously, the system assigns "Wait Altitudes" in a vertical stack. Drones are cleared for landing sequentially only after the battery-swapping mechanism confirms a "Ready" state.
+8. Pre-Flight & Mission Logic
+* Validation Gate: Every mission is preceded by a validation step comparing the estimated energy required (including reserve) against current battery health.
+* Auto-Reassignment: If a drone fails the pre-flight check, the mission is automatically reassigned to the next available unit in the standby queue.
+* Cyclic Auto-Exit: Drones repeat waypoint sequences in a loop and autonomously break the cycle when battery levels hit the "Return-to-Home" threshold or a manual override is issued.

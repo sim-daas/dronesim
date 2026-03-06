@@ -21,8 +21,11 @@ import os
 class DroneGCSDashboard(QMainWindow):
     def __init__(self, port=14540, sysid=1, grpc_port=50051):
         super().__init__()
-        self.setWindowTitle("Custom Drone GCS Dashboard")
+        self.setWindowTitle(str(sysid))
         self.setGeometry(100, 100, 1400, 900)
+        self.grpc_port = grpc_port  # Store gRPC port for later use
+        self.sysid = sysid  # Store System ID for later use
+        self.port = port  # Store MAVSDK port for later use
         
         # MAVSDK connection
         self.drone = System(sysid=sysid, port=grpc_port)  # Connect to drone with specified MAV_SYS_ID
@@ -1242,11 +1245,9 @@ class DroneGCSDashboard(QMainWindow):
     def execute_mission_process(self):
         """Execute mission using separate Python process"""
         try:
-            # Prepare waypoints data as JSON
             waypoints_json = json.dumps(self.waypoints)
             speed = self.speed_entry.text()
             
-            # Get the path to mission.py (same directory as dashboard.py)
             current_dir = os.path.dirname(os.path.abspath(__file__))
             mission_script = os.path.join(current_dir, "mission.py")
             
@@ -1254,77 +1255,74 @@ class DroneGCSDashboard(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Mission script not found: {mission_script}")
                 return
                 
-            # Launch mission.py as separate process
             self.log_message("Launching mission executor process...")
             self.log_message(f"Waypoints: {len(self.waypoints)} points")
             self.log_message(f"Speed: {speed} m/s")
-            
-            # Update mission status
+            mission_grpc_port = self.grpc_port + 10
+
             self.mission_status.setText("Launching mission executor...")
             
-            # Start the mission process
-            cmd = ["python3", mission_script, waypoints_json, speed]
+            cmd = ["python3", mission_script,
+                   "--waypoints", waypoints_json,
+                   "--speed", speed,
+                   "--port", str(self.port),
+                   "--sysid", str(self.sysid),
+                   "--grpc-port", str(mission_grpc_port)]
+            print(f"Executing command: {' '.join(cmd)}")
             self.mission_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+                stderr=subprocess.STDOUT,  # Merge stderr into stdout
+                text=True,
+                bufsize=1  # Line-buffered
             )
             
-            # Start monitoring the process
-            self.monitor_mission_process()
+            # Stream output in a background daemon thread
+            output_thread = threading.Thread(
+                target=self._stream_mission_output,
+                args=(self.mission_process,),
+                daemon=True
+            )
+            output_thread.start()
+            
+            self.mission_status.setText("Mission executor running...")
             
         except Exception as e:
             error_msg = f"Failed to execute mission process: {str(e)}"
             self.log_message(error_msg)
             QMessageBox.critical(self, "Mission Error", error_msg)
             self.mission_status.setText("Mission launch failed!")
-    
-    def monitor_mission_process(self):
-        """Monitor the mission process output"""
+
+    def _stream_mission_output(self, process):
+        """Stream mission process output line by line in a background thread"""
+        battery_low = False
         try:
-            if self.mission_process is None:
-                return
-                
-            # Check if process is still running
-            if self.mission_process.poll() is None:
-                # Process is still running, schedule next check
-                QTimer.singleShot(1000, self.monitor_mission_process)
-                self.mission_status.setText("Mission executor running...")
-            else:
-                # Process has finished
-                return_code = self.mission_process.returncode
-                stdout, stderr = self.mission_process.communicate()
-                
-                if return_code == 0:
-                    self.log_message("✓ Mission process completed (interrupted or finished)")
-                    self.mission_status.setText("Mission completed - starting recovery...")
-                else:
-                    self.log_message(f"✗ Mission process failed with code {return_code}")
-                    self.mission_status.setText("Mission failed - starting recovery...")
-                    
-                # Log any output and check for battery low signal
-                if stdout.strip():
-                    for line in stdout.strip().split('\n'):
-                        self.log_message(f"Mission: {line}")
-                        if "BATTERY_LOW_SIGNAL" in line:
-                            self.log_message("🔋 Battery low - drone returning to home for precision landing")
-                        
-                if stderr.strip():
-                    for line in stderr.strip().split('\n'):
-                        self.log_message(f"Mission Error: {line}")
-                        
-                self.mission_process = None
-                
-                # Start recovery process: reconnect and return to home
-                self.start_recovery_process()
-                
+            for line in process.stdout:
+                line = line.rstrip()
+                if line:
+                    self.log_message(f"Mission: {line}")
+                    if "BATTERY_LOW_SIGNAL" in line:
+                        battery_low = True
         except Exception as e:
-            self.log_message(f"Error monitoring mission process: {str(e)}")
-            self.mission_status.setText("Mission monitoring failed!")
-            # Still try recovery
-            self.start_recovery_process()
-    
+            self.log_message(f"Output stream error: {e}")
+        finally:
+            process.wait()
+            return_code = process.returncode
+            if battery_low:
+                self.log_message("🔋 Battery low - drone returning to home for precision landing")
+            if return_code == 0:
+                self.log_message("✓ Mission process completed")
+                QTimer.singleShot(0, lambda: self.mission_status.setText("Mission completed - starting recovery..."))
+            else:
+                self.log_message(f"✗ Mission process failed with code {return_code}")
+                QTimer.singleShot(0, lambda: self.mission_status.setText("Mission failed - starting recovery..."))
+            self.mission_process = None
+            QTimer.singleShot(0, self.start_recovery_process)
+
+    def monitor_mission_process(self):
+        """Deprecated - output is now streamed via _stream_mission_output"""
+        pass
+
     def start_recovery_process(self):
         """Start the recovery process after mission completion/interruption"""
         self.log_message("🏠 Starting recovery process...")

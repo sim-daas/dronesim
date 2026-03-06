@@ -1,0 +1,183 @@
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+
+
+
+
+
+
+
+
+
+
+# Surveillance Drone System — Docker Compose
+# 3 container types: Simulation + 4× Drone Controller + GCS
+# 2 networks: drone-sim-net (ROS2/sensor) + drone-ctrl-net (MAVLink/REST)
+# ═══════════════════════════════════════════════════════════════════════════
+
+networks:
+  drone-sim-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.42.0.0/16
+  drone-ctrl-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.43.0.0/16
+
+services:
+  # ─── Simulation Container ─────────────────────────────────────────────
+  # Runs Gazebo + 4× PX4 SITL + XRCE-DDS Agent
+  # Dual-homed: serves MAVLink on ctrl-net, ROS2 sensor data on sim-net
+  simulation:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.simulation
+    container_name: dronesim-simulation
+    privileged: true
+    networks:
+      drone-sim-net:
+        ipv4_address: 10.42.0.100
+      drone-ctrl-net:
+        ipv4_address: 10.43.0.100
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /dev/dri:/dev/dri
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true
+
+  # ─── Drone Controller 1 ──────────────────────────────────────────────
+  drone-controller-1:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.drone-controller
+    container_name: dronesim-controller-1
+    networks:
+      drone-ctrl-net:
+        ipv4_address: 10.43.0.11
+    environment:
+      - DRONE_ID=1
+      - MAV_SYS_ID=1
+      - SIM_HOST=10.43.0.100
+      - PX4_PORT=14540
+      - LOCAL_MAVLINK_PORT=14590
+      - GRPC_PORT=50051
+      - API_PORT=5001
+    ports:
+      - "5001:5001"
+    depends_on:
+      - simulation
+    restart: unless-stopped
+
+  # ─── Drone Controller 2 ──────────────────────────────────────────────
+  drone-controller-2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.drone-controller
+    container_name: dronesim-controller-2
+    networks:
+      drone-ctrl-net:
+        ipv4_address: 10.43.0.12
+    environment:
+      - DRONE_ID=2
+      - MAV_SYS_ID=2
+      - SIM_HOST=10.43.0.100
+      - PX4_PORT=14541
+      - LOCAL_MAVLINK_PORT=14591
+      - GRPC_PORT=50052
+      - API_PORT=5002
+    ports:
+      - "5002:5002"
+    depends_on:
+      - simulation
+    restart: unless-stopped
+
+  # ─── Drone Controller 3 ──────────────────────────────────────────────
+  drone-controller-3:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.drone-controller
+    container_name: dronesim-controller-3
+    networks:
+      drone-ctrl-net:
+        ipv4_address: 10.43.0.13
+    environment:
+      - DRONE_ID=3
+      - MAV_SYS_ID=3
+      - SIM_HOST=10.43.0.100
+      - PX4_PORT=14542
+      - LOCAL_MAVLINK_PORT=14592
+      - GRPC_PORT=50053
+      - API_PORT=5003
+    ports:
+      - "5003:5003"
+    depends_on:
+      - simulation
+    restart: unless-stopped
+
+  # ─── Drone Controller 4 ──────────────────────────────────────────────
+  drone-controller-4:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.drone-controller
+    container_name: dronesim-controller-4
+    networks:
+      drone-ctrl-net:
+        ipv4_address: 10.43.0.14
+    environment:
+      - DRONE_ID=4
+      - MAV_SYS_ID=4
+      - SIM_HOST=10.43.0.100
+      - PX4_PORT=14543
+      - LOCAL_MAVLINK_PORT=14593
+      - GRPC_PORT=50054
+      - API_PORT=5004
+    ports:
+      - "5004:5004"
+    depends_on:
+      - simulation
+    restart: unless-stopped
+
+  # ─── GCS Dashboard ──────────────────────────────────────────────────
+  gcs:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gcs
+    container_name: dronesim-gcs
+    networks:
+      drone-ctrl-net:
+        ipv4_address: 10.43.0.200
+    environment:
+      - NUM_DRONES=4
+      - GCS_PORT=8080
+      - DRONE_1_HOST=10.43.0.11
+      - DRONE_1_PORT=5001
+      - DRONE_2_HOST=10.43.0.12
+      - DRONE_2_PORT=5002
+      - DRONE_3_HOST=10.43.0.13
+      - DRONE_3_PORT=5003
+      - DRONE_4_HOST=10.43.0.14
+      - DRONE_4_PORT=5004
+    ports:
+      - "8080:8080"
+    depends_on:
+      - drone-controller-1
+      - drone-controller-2
+      - drone-controller-3
+      - drone-controller-4
+    restart: unless-stopped

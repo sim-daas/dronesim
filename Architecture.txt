@@ -1,0 +1,64 @@
+﻿Comprehensive Architecture Specification: 24/7 Autonomous Surveillance & Precision Landing System
+1. Field of Architecture
+The present architecture relates to an integrated autonomous surveillance ecosystem comprising a multi-drone fleet, a central base station (CBS), and an automated battery-management dock. The system is designed for persistent Intelligence, Surveillance, and Reconnaissance (ISR) through a "Relay Race" handover protocol and high-precision terminal guidance using nested visual fiducials.
+2. System Hardware Infrastructure
+2.1 The Aerial Platform (UAV)
+The UAV is configured as a high-endurance multi-rotor platform optimized for onboard edge intelligence.
+* Onboard Processing (Tier 1): NVIDIA Jetson Nano/Orin serving as the "Cognitive Processor." It executes zero-copy video analytics via the NVIDIA DeepStream pipeline and manages the high-level ROS2 Behavior Trees.
+* Flight Control (Tier 2): A PX4-based Flight Controller (FC) managing low-level PID loops, EKF2 state estimation, and the uXRCE-DDS middleware client.
+* Vision Subsystem: A global-shutter Raspberry Pi camera equipped with a 940nm narrow-bandpass filter to isolate active IR markers from solar noise.
+* Navigation & Rangefinding: A multi-constellation GNSS module synchronized via 1-PPS (Pulse Per Second) to the Jetson clock, coupled with a 1D Lidar for precision AGL (Above Ground Level) measurements during landing.
+* Payload Deployment: A high-torque, metal-geared servo-actuated mechanism for the controlled release of mission-specific payloads, triggered either by AI threat validation or manual ground command.
+2.2 The Ground Docking Station
+* Active Marker System: A landing pad featuring "Negative" Fractal STag markers illuminated by 940nm IR LEDs, providing infinite contrast for the vision subsystem.
+* Energy Management: An Automated Battery Swapping System (ABSS) or active conductive clamping system with integrated HVAC to maintain battery health within a 0°C to 45°C charging envelope.
+3. Software Orchestration & Protocols
+3.1 Data Transport Layer
+The system utilizes a multi-band communication strategy to ensure redundancy:
+* 433/915 MHz: MAVLink telemetry for long-range heartbeats and critical status updates.
+* 2.4 GHz: Control commands and mission waypoint synchronization.
+* 5 GHz / Wi-Fi Mesh: High-bandwidth FPV video streaming and ROS2 topic sharing between swarm members.
+* Internal Bus: High-speed UART (up to 3M Baud) using the uXRCE-DDS protocol for Jetson-to-PX4 communication.
+3.2 Vision & AI Pipeline
+The vision logic employs Position-Based Visual Servoing (PBVS). The system solves the Perspective-n-Point (PnP) problem to reconstruct a 6-DOF pose relative to the dock.
+* Fractal Logic: The system dynamically switches between "Outer Ring" (long-range detection >2.5m) and "Inner Ring" (short-range precision <2.5m) to maintain sub-centimeter resolution.
+* Motion Prediction: A localized Kalman Filter predicts the trajectory of the landing pad if mounted on a mobile or relocatable base.
+4. Operational Workflow & Mission Lifecycle
+4.1 Phase I: Pre-Flight & Weighted-Sum Scheduling Logic
+The central orchestration logic is governed by a high-level Weighted-Sum Scheduler (WSS). This sub-system ensures that fleet deployment is not merely based on proximity, but on a multidimensional health and efficiency matrix.
+4.1.1 The Priority Selection Matrix
+The CBS calculates a Deployment Priority Score ($P_d$) for every available drone in the standby queue. The selection follows the formula:
+$$P_d = (\alpha \cdot SOC) + (\beta \cdot SOH) - (\gamma \cdot D_b) - (\delta \cdot R_i)$$
+Where:
+* $\alpha, \beta, \gamma, \delta$ are weighting coefficients tuned for mission-criticality.
+* SOC (State of Charge): Current usable energy percentage.
+* SOH (State of Health): A ratio of current full-charge capacity to original capacity, derived from historical cycle data.
+* $D_b$ (Distance to Breach): The physical distance from the drone's current docking port to the mission starting waypoint.
+* $R_i$ (Internal Resistance): A real-time telemetry value indicating battery degradation; high $R_i$ signals potential voltage sags under high-current maneuvers.
+4.1.2 Automatic Scheduling & Reassignment
+The scheduler operates as a "live-loop" monitor. If a drone assigned to a mission $(UAV_x)$ reports a sudden drop in $SOH$ or an $R_i$ spike during pre-arm checks, the Validation Gate triggers an Immediate Reassignment Event.
+1. Interrupt: The CBS halts the launch sequence of $UAV_x$.
+2. Re-Scan: The WSS re-runs the priority matrix against the remaining fleet.
+3. Redeploy: The mission parameters (Tiling paths, payload configs) are injected into the next highest-scoring unit $(UAV_y)$.
+4. Log: The degraded unit is flagged for "Manual Inspection Required" and moved to the back of the charging queue.
+4.1.3 Environmental Adaptive Tiling
+The scheduling logic integrates with a C++ Tiling Engine. This engine calculates the total energy cost ($E_{total}$) based on the user-defined polygon area, desired target altitude, and target overlap. If $E_{total} > (SOC_{available} \times Reserve\_Margin)$, the scheduler automatically splits the mission into a Multi-Sortie Operation, assigning different sectors of the polygon to different drones based on their specific health profiles.
+4.2 Phase II: Persistent Patrol & Tiling
+Drones navigate the mission area using a two-tier avoidance system:
+1. Global Layer: Pre-mapped static obstacles in the CBS database.
+2. Local Layer: Reactive avoidance using onboard ultrasonic and Lidar sensors (Vector Field Histogram).
+The coverage is optimized through "Lawnmower" or "Dense Inspection" patterns, with optional waypoint randomization to prevent surveillance predictability.
+4.3 Phase III: The "Relay Race" Handover
+To achieve zero-downtime, the system utilizes a vertical buffer strategy:
+   * When Drone A reaches the Dynamic RTH Threshold (calculated as Distance * Energy/Meter + 15% Buffer), the CBS launches Drone B.
+   * Drone A remains on station until Drone B broadcasts a "Sector Entry" signal via the mesh network.
+   * Drones maintain a Vertical Offset (e.g., 10m separation) during the GPS coordinate handover to eliminate collision risk.
+4.4 Phase IV: Precision Landing & Docking
+Upon reaching the base coordinates, the drone enters "Hunting Mode":
+   1. Acquisition: The Jetson identifies the IR STag marker.
+   2. Alignment: PBVS aligns the drone’s X/Y axes with the dock center.
+   3. Descent: The Lidar provides the primary Z-axis feedback to prevent "Ground Effect" oscillations.
+   4. Touchdown: In the final 0.5s, the system enters Blind Dead-Reckoning, relying on high-frequency IMU integration to maintain attitude during the physical contact phase.
+5. Emergency Fail-Safes
+   * Semantic "Safe-Surface" Landing: In the event of critical battery or total signal loss, the Jetson runs a semantic segmentation model to identify grass or pavement for emergency landing, avoiding roads, people, or water.
+   * Virtual Landing Queue: If multiple drones return simultaneously, the CBS assigns them to a "Vertical Stack" (Wait Altitudes), clearing them for landing sequentially only after the dock confirms a "Ready/Vacant" state.

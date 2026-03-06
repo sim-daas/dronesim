@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Surveillance Drone System — GCS</title>
+    <meta name="description" content="Ground Control Station for multi-drone surveillance fleet management">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <header id="gcs-header">
+        <div class="header-left">
+            <h1>Surveillance Drone System</h1>
+            <span class="header-subtitle">Ground Control Station</span>
+        </div>
+        <div class="header-right">
+            <div class="header-stat">
+                <span class="stat-label">Fleet</span>
+                <span class="stat-value" id="fleet-count">0/{{ num_drones }}</span>
+            </div>
+            <div class="header-stat">
+                <span class="stat-label">Update</span>
+                <span class="stat-value" id="last-update">--:--:--</span>
+            </div>
+            <div class="connection-indicator" id="connection-dot" title="Polling status"></div>
+        </div>
+    </header>
+
+    <!-- Fleet Overview -->
+    <main id="fleet-container">
+        {% for i in range(1, num_drones + 1) %}
+        <div class="drone-card" id="drone-card-{{ i }}" data-drone-id="{{ i }}">
+            <!-- Card Header -->
+            <div class="card-header">
+                <div class="drone-id-badge">
+                    <span class="drone-icon">⬡</span>
+                    <span>Drone {{ i }}</span>
+                </div>
+                <div class="status-badges">
+                    <span class="badge badge-connection" id="drone-{{ i }}-conn">OFFLINE</span>
+                    <span class="badge badge-armed" id="drone-{{ i }}-armed-badge">DISARMED</span>
+                </div>
+            </div>
+
+            <!-- Telemetry Grid -->
+            <div class="telemetry-grid">
+                <div class="telem-item">
+                    <span class="telem-label">LAT</span>
+                    <span class="telem-value" id="drone-{{ i }}-lat">--</span>
+                </div>
+                <div class="telem-item">
+                    <span class="telem-label">LON</span>
+                    <span class="telem-value" id="drone-{{ i }}-lon">--</span>
+                </div>
+                <div class="telem-item">
+                    <span class="telem-label">ALT</span>
+                    <span class="telem-value" id="drone-{{ i }}-alt">--</span>
+                </div>
+                <div class="telem-item">
+                    <span class="telem-label">SPD</span>
+                    <span class="telem-value" id="drone-{{ i }}-speed">--</span>
+                </div>
+                <div class="telem-item">
+                    <span class="telem-label">BAT</span>
+                    <span class="telem-value" id="drone-{{ i }}-battery">--</span>
+                </div>
+                <div class="telem-item">
+                    <span class="telem-label">MODE</span>
+                    <span class="telem-value" id="drone-{{ i }}-mode">--</span>
+                </div>
+                <div class="telem-item">
+                    <span class="telem-label">GPS</span>
+                    <span class="telem-value" id="drone-{{ i }}-gps">--</span>
+                </div>
+                <div class="telem-item">
+                    <span class="telem-label">HDG</span>
+                    <span class="telem-value" id="drone-{{ i }}-heading">--</span>
+                </div>
+            </div>
+
+            <!-- Battery Bar -->
+            <div class="battery-bar-container">
+                <div class="battery-bar" id="drone-{{ i }}-battery-bar" style="width: 0%"></div>
+            </div>
+
+            <!-- Control Buttons -->
+            <div class="control-buttons">
+                <button class="btn btn-arm" onclick="sendCommand({{ i }}, 'arm')" title="Arm motors">ARM</button>
+                <button class="btn btn-disarm" onclick="sendCommand({{ i }}, 'disarm')" title="Disarm motors">DISARM</button>
+                <button class="btn btn-takeoff" onclick="sendTakeoff({{ i }})" title="Takeoff to 5m">TAKEOFF</button>
+                <button class="btn btn-land" onclick="sendCommand({{ i }}, 'land')" title="Land at current position">LAND</button>
+                <button class="btn btn-rtl" onclick="sendCommand({{ i }}, 'rtl')" title="Return to launch">RTL</button>
+            </div>
+        </div>
+        {% endfor %}
+    </main>
+
+    <!-- System Console -->
+    <section id="console-section">
+        <div class="console-header">
+            <h2>System Console</h2>
+            <button class="btn btn-small" onclick="clearConsole()">Clear</button>
+        </div>
+        <div id="console-output"></div>
+    </section>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

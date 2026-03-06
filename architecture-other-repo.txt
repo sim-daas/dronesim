@@ -1,0 +1,106 @@
+**Aerial Autonomy Stack (AAS) Architecture Document**
+
+**1. System Overview and Sim2Real Philosophy**
+The Aerial Autonomy Stack (AAS) is a comprehensive, Dockerized software framework engineered to bridge the system design reality gap in multi-drone autonomy. The core design principle ensures that the exact same ROS 2 and containerized stack developed in simulation is deployed directly onto real-world edge hardware, such as NVIDIA Jetson devices. This eliminates technical debt and forces vertical integration between machine learning runtimes, physics simulators, and autopilot firmware.
+
+**2. Containerized Architecture Topology**
+The system physically and logically isolates the simulation environment, the drone's onboard compute, and the ground control station into three distinct container profiles. This strict separation allows independent development of ground station analytics or dashboards without entanglement in the onboard flight code.
+
+**A. Simulation Container (`amd64`)**
+This container handles the physical simulation of the world and the software-in-the-loop (SITL) autopilots.
+
+* **Physics & Rendering Engine**: Utilizes Gazebo Sim for 3D worlds (e.g., photogrammetry maps, procedural grids) and simulated sensors (cameras, LiDAR). Includes Gazebo plugins for environmental effects like wind.
+* **SITL Autopilots**: Runs multiple instances of PX4 or ArduPilot SITL, supporting both quadrotors and VTOL aircraft.
+* **Bridge Layer**: Employs `gz_bridge` or `ardupilot_gazebo` to link the physics engine with the SITL firmware.
+
+**B. Aircraft Container (`amd64` / `arm64`)**
+This container encapsulates the onboard intelligence and is designed for direct deployment on companion computers (e.g., Jetson Orin NX).
+
+* **Perception Module**: Processes simulated or real sensor data using `yolo_py` for object detection (via ONNX GPU Runtimes) and `kiss_icp` for 3D LiDAR Odometry.
+* **Control & Mission Execution**: Contains `offboard_control` for low-level setpoint generation, `autopilot_interface` for high-level actions (takeoff, land, orbit), and a `mission` orchestrator node.
+* **Autopilot Interface**: Communicates with the flight controller using XRCE-DDS (for PX4) or MAVROS (for ArduPilot).
+* **Swarm Integration**: A `state_sharing` node interfaces with a Zenoh bridge to broadcast vehicle states to the network.
+
+**C. Ground Container (`amd64`)**
+This container isolates all ground operations and offboard control routing.
+
+* **Ground System Node**: Subscribes to `/tracks` and other telemetry data broadcasted by the aircraft containers.
+* **Routing & UI**: Runs `mavlink-router` to distribute MAVLink traffic and QGroundControl for human-in-the-loop oversight.
+* **Network Bridge**: Operates a Zenoh bridge to manage incoming data from the drone swarm.
+
+**3. Intercommunication and Network Isolation**
+To accurately emulate the constraints of real-world drone deployments, the architecture enforces a dual-network strategy. This guarantees that heavy synthetic sensor data does not pollute the bandwidth-constrained inter-vehicle communication layer.
+
+* **`SIM_SUBNET`**: Dedicated to transporting simulated sensor data (GStreamer video feeds to YOLO, LiDAR point clouds to KISS-ICP) and UDP MAVLink traffic between the simulation and aircraft containers.
+* **`AIR_SUBNET`**: Emulates the real-world RF datalink. It handles inter-vehicle and vehicle-to-ground ROS 2 messaging utilizing Zenoh over TCP.
+
+**4. Technology Stack**
+
+* **Deployment Base**: NVIDIA CUDA (`12.8.1`) for simulation and NVIDIA L4T JetPack (`r36.4.0`) for edge deployment.
+* **Middleware**: ROS 2 for intra-companion board processes; Zenoh for decentralized inter-process bridging.
+* **Flight Firmware**: Agnostic support for PX4 (Offboard mode) and ArduPilot (Guided mode).
+* **Reinforcement Learning**: Integrates a steppable Gymnasium environment (`aas-gym`) enabling faster-than-real-time training and vectorized simulations.
+* **Log Analysis**: Pipeline supports `flight_review` (`.ulg`), MAVExplorer (`.bin`), and PlotJuggler (`rosbag`) for post-flight telemetry review.
+
+Execute deployment and simulation modifications strictly against these architectural boundaries. Mixing ground station dependencies into the aircraft container will compromise the hardware-in-the-loop (HITL) validity of the system.
+
+**Aerial Autonomy Stack (AAS) Architecture & Network Design Document**
+
+**1. System Overview**
+The Aerial Autonomy Stack (AAS) is a faster-than-real-time, ROS 2 framework designed to eliminate the system design reality gap between simulation and field deployment. It achieves this through a strict, containerized architecture that runs the identical perception, autonomy, and networking stack in both Software-in-the-Loop (SITL) simulations and physical deployment on edge hardware (like NVIDIA Jetson).
+
+**2. Deep Dive: Intercommunication & Network Subnet Setup**
+A core feature of the AAS architecture is its dual-network topology. In the real world, drones communicate with each other over low-bandwidth, high-latency RF links, while their onboard sensors stream high-bandwidth data internally. To emulate this in simulation without artificially congesting the simulated RF link, AAS strictly isolates traffic into two subnets.
+
+**A. The Subnet Design**
+
+* **`SIM_SUBNET` (Default: `10.42.x.x`)**: The high-bandwidth internal network. It carries simulated GStreamer video feeds, LiDAR point clouds from Gazebo to the drone's perception nodes, and UDP MAVLink traffic between the SITL autopilot and the companion computer bridge.
+* **`AIR_SUBNET` (Default: `10.22.x.x`)**: The emulated real-world RF datalink. It exclusively carries inter-vehicle and vehicle-to-ground ROS 2 messaging (via Zenoh over TCP).
+
+**B. SITL Docker Network Implementation**
+When running simulations (`sim_run.sh`), the dual-network isolation is enforced using Docker's native bridge networking:
+
+1. **Network Creation**: The script dynamically creates two dedicated Docker networks: `aas-sim-network-inst<INSTANCE>` and `aas-air-network-inst<INSTANCE>`. The `INSTANCE` variable allows multiple parallel simulations to run on the same machine by mathematically offsetting the second byte of the IP address (e.g., Instance 1 shifts subnets to `10.43.x.x` and `10.23.x.x`) to prevent IP collisions.
+2. **Container Launch (SIM_SUBNET Attachment)**:
+* The `Simulation` container is launched via `docker run` and bound strictly to the `SIM_NET` with an IP of `[SIM_SUBNET].90.[SIM_ID]` (default: `10.42.90.100`).
+* The `Ground` and `Aircraft` containers are also initially launched on the `SIM_NET` with IPs assigned using their respective IDs (e.g., Ground is `10.42.90.101`, Aircraft 1 is `10.42.90.1`).
+
+
+3. **Dynamic Network Attachment (AIR_SUBNET)**: After the `Ground` and `Aircraft` containers are running, the script executes a `docker network connect` command to attach these specific containers to the secondary `AIR_NET`. They are assigned secondary IPs like `10.22.90.101` and `10.22.90.1`.
+4. **Isolation**: Because the `Simulation` container is never connected to the `AIR_NET`, the synthetic environment is mathematically decoupled from the inter-drone swarm communications.
+
+**C. HITL / Deployment Network Implementation**
+When deploying to physical hardware (`deploy_run.sh`) or running Hardware-in-the-Loop (HITL), Docker's virtual networks are bypassed.
+
+* The containers are launched with `--net=host`, binding them directly to the host machine's networking stack.
+* The dual-network separation is instead handled by physical OS-level LANs. The system requires users to configure physical network interfaces (e.g., using USB Ethernet adapters on Jetson baseboards) to map to a physical `SIM_SUBNET` (e.g., `172.30.x.x`) and a physical `AIR_SUBNET` (e.g., `10.223.x.x`).
+
+**3. Containerized Architecture Topology**
+
+**A. Simulation Container (`amd64`)**
+
+* **Role**: Computes the physics and sensor data of the environment. Intentionally isolated from the `AIR_SUBNET`.
+* **Components**: Gazebo Sim (handling 3D worlds and wind effects), multiple PX4/ArduPilot SITL instances, and bridging plugins (`gz_bridge` or `ardupilot_gazebo`).
+
+**B. Aircraft Container (`amd64` / `arm64`)**
+
+* **Role**: The "brain" of the drone. It connects to the `SIM_SUBNET` to pull raw sensor data and the `AIR_SUBNET` to talk to the swarm. Built to be identical across x86 simulation and ARM64 edge deployment.
+* **Components**:
+* **Perception**: `yolo_py` for object detection and `kiss_icp` for LiDAR odometry.
+* **Control**: High-level `autopilot_interface`, `offboard_control` for trajectory/velocity setpoints, and `mission` execution.
+* **Bridge**: XRCE-DDS (PX4) or MAVROS (ArduPilot) linking the ROS 2 environment to the autopilot firmware.
+* **Swarm**: `state_sharing` node pushing data to the Zenoh bridge.
+
+
+
+**C. Ground Container (`amd64`)**
+
+* **Role**: Human-in-the-loop oversight and offboard orchestration.
+* **Components**: `ground_system` node tracking telemetry on the `AIR_SUBNET`, `mavlink-router` for MAVLink distribution, and QGroundControl for UI.
+
+**4. Technology Stack**
+
+* **Base Images**: `nvcr.io/nvidia/cuda:12.8.1` (Simulation) and `nvcr.io/nvidia/l4t-jetpack:r36.4.0` (Deployment).
+* **Middleware**: ROS 2 (internal messaging), Zenoh (inter-vehicle bridge), MAVLink (telemetry).
+* **Analysis Tools**: PlotJuggler (`rosbag`), `flight_review` (`.ulg`), MAVExplorer (`.bin`).
+* **Machine Learning**: Integrated `aas-gym` Gymnasium environment for vectorized RL training.

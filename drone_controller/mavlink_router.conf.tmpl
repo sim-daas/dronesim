@@ -1,0 +1,14 @@
+[General]
+TcpServerPort = 0
+ReportStats = false
+MavlinkDialect = common
+
+[UdpEndpoint px4_sitl]
+Mode = Server
+Address = 0.0.0.0
+Port = PX4_PORT_PLACEHOLDER
+
+[UdpEndpoint mavsdk_local]
+Mode = Normal
+Address = 127.0.0.1
+Port = LOCAL_MAVLINK_PORT_PLACEHOLDER

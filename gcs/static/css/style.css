@@ -1,0 +1,426 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Surveillance Drone System — GCS Dashboard Stylesheet
+   Dark theme matching the original PyQt5 dashboard color scheme
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ─── CSS Variables (Color Palette) ────────────────────────────────────── */
+:root {
+    --bg:              #1C1C1C;
+    --bg-card:         #2C2C2C;
+    --bg-card-hover:   #333333;
+    --divider:         #444444;
+    --primary-text:    #E0E0E0;
+    --secondary-text:  #B0B0B0;
+    --accent:          #1E90FF;
+    --success:         #00FF85;
+    --warning:         #FF6F61;
+    --info:            #456882;
+    --hover:           #3e3e42;
+    --disabled:        #555555;
+    --danger:          #c0392b;
+    --purple:          #9b59b6;
+    --orange:          #e67e22;
+    --font-family:     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ─── Reset & Base ─────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    background-color: var(--bg);
+    color: var(--primary-text);
+    font-family: var(--font-family);
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* ─── Header ───────────────────────────────────────────────────────────── */
+#gcs-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #232323 0%, #2a2a2a 100%);
+    border-bottom: 1px solid var(--divider);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(10px);
+}
+
+.header-left h1 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--primary-text);
+    letter-spacing: -0.02em;
+}
+
+.header-subtitle {
+    font-size: 0.75rem;
+    color: var(--secondary-text);
+    font-weight: 400;
+    margin-left: 2px;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.header-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.stat-label {
+    font-size: 0.65rem;
+    color: var(--secondary-text);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.stat-value {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--success);
+}
+
+.connection-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: var(--warning);
+    transition: background-color 0.3s ease;
+    box-shadow: 0 0 6px rgba(255, 111, 97, 0.5);
+}
+
+.connection-indicator.active {
+    background-color: var(--success);
+    box-shadow: 0 0 6px rgba(0, 255, 133, 0.5);
+}
+
+/* ─── Fleet Container ──────────────────────────────────────────────────── */
+#fleet-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+    padding: 20px 24px;
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
+/* ─── Drone Card ───────────────────────────────────────────────────────── */
+.drone-card {
+    background: var(--bg-card);
+    border: 1px solid var(--divider);
+    border-radius: 12px;
+    padding: 16px;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.drone-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--divider);
+    transition: background 0.3s ease;
+}
+
+.drone-card.connected::before {
+    background: linear-gradient(90deg, var(--accent), var(--success));
+}
+
+.drone-card:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--info);
+}
+
+/* ─── Card Header ──────────────────────────────────────────────────────── */
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+.drone-id-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.drone-icon {
+    font-size: 1.2rem;
+    color: var(--accent);
+}
+
+.status-badges {
+    display: flex;
+    gap: 6px;
+}
+
+.badge {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.badge-connection {
+    background: rgba(255, 111, 97, 0.15);
+    color: var(--warning);
+    border: 1px solid rgba(255, 111, 97, 0.3);
+}
+
+.badge-connection.online {
+    background: rgba(0, 255, 133, 0.1);
+    color: var(--success);
+    border: 1px solid rgba(0, 255, 133, 0.3);
+}
+
+.badge-armed {
+    background: rgba(85, 85, 85, 0.3);
+    color: var(--secondary-text);
+    border: 1px solid rgba(85, 85, 85, 0.5);
+}
+
+.badge-armed.armed {
+    background: rgba(255, 111, 97, 0.15);
+    color: var(--warning);
+    border: 1px solid rgba(255, 111, 97, 0.3);
+    animation: pulse-armed 2s infinite;
+}
+
+@keyframes pulse-armed {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* ─── Telemetry Grid ───────────────────────────────────────────────────── */
+.telemetry-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.telem-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    border: 1px solid rgba(68, 68, 68, 0.4);
+}
+
+.telem-label {
+    font-size: 0.6rem;
+    color: var(--secondary-text);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 500;
+}
+
+.telem-value {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--success);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ─── Battery Bar ──────────────────────────────────────────────────────── */
+.battery-bar-container {
+    width: 100%;
+    height: 4px;
+    background: rgba(68, 68, 68, 0.5);
+    border-radius: 2px;
+    margin-bottom: 14px;
+    overflow: hidden;
+}
+
+.battery-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--success), #2ecc71);
+    border-radius: 2px;
+    transition: width 0.5s ease, background 0.5s ease;
+}
+
+.battery-bar.low {
+    background: linear-gradient(90deg, var(--warning), #e74c3c);
+}
+
+.battery-bar.critical {
+    background: var(--danger);
+    animation: blink-critical 1s infinite;
+}
+
+@keyframes blink-critical {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* ─── Control Buttons ──────────────────────────────────────────────────── */
+.control-buttons {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.btn {
+    padding: 7px 14px;
+    border: none;
+    border-radius: 6px;
+    font-family: var(--font-family);
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    color: white;
+    flex: 1;
+    min-width: 55px;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.15);
+}
+
+.btn:active {
+    transform: translateY(0);
+    filter: brightness(0.95);
+}
+
+.btn-arm      { background: var(--warning); }
+.btn-disarm   { background: var(--orange); }
+.btn-takeoff  { background: var(--accent); }
+.btn-land     { background: var(--purple); }
+.btn-rtl      { background: var(--danger); }
+
+.btn:disabled {
+    background: var(--disabled);
+    color: var(--secondary-text);
+    cursor: not-allowed;
+    transform: none;
+    filter: none;
+}
+
+.btn-small {
+    padding: 4px 10px;
+    font-size: 0.65rem;
+    background: var(--info);
+    flex: none;
+}
+
+/* ─── Console ──────────────────────────────────────────────────────────── */
+#console-section {
+    margin: 0 24px 24px;
+    max-width: 1600px;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 0 24px;
+}
+
+.console-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.console-header h2 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--secondary-text);
+}
+
+#console-output {
+    background: #111111;
+    border: 1px solid var(--divider);
+    border-radius: 8px;
+    padding: 12px;
+    height: 200px;
+    overflow-y: auto;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.72rem;
+    line-height: 1.6;
+    color: var(--secondary-text);
+}
+
+#console-output .log-entry {
+    padding: 1px 0;
+    border-bottom: 1px solid rgba(68, 68, 68, 0.15);
+}
+
+#console-output .log-entry:last-child {
+    border-bottom: none;
+}
+
+#console-output .log-success { color: var(--success); }
+#console-output .log-error   { color: var(--warning); }
+#console-output .log-info    { color: var(--accent); }
+
+/* ─── Scrollbar ────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--divider);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--info);
+}
+
+/* ─── Responsive ───────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    #fleet-container {
+        grid-template-columns: 1fr;
+        padding: 12px;
+    }
+
+    .telemetry-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    #gcs-header {
+        flex-direction: column;
+        gap: 8px;
+    }
+}

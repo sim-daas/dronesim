@@ -12,4 +12,38 @@ windows:
       root: /root/PX4-Autopilot
       layout: even-vertical
       panes:
-        - sleep 2 && PX4_SYS_AUTOSTART=4002 PX4_GZ_MODEL_POSE="268.08,-128.22,3.86,0.00,0,-0.7" PX4_GZ_MODEL=x500_depth ./build/px4_sitl_default/bin/px4
+        - PX4_SYS_AUTOSTART=4002 PX4_GZ_MODEL_POSE="0.0,0.0,1.0,0.00,0,-0.7" PX4_SIM_MODEL=gz_x500_mono_cam_down ./build/px4_sitl_default/bin/px4
+  - PX4_Autopilot:
+      root: /root/PX4-Autopilot
+      layout: even-vertical
+      panes:
+        - PX4_GZ_STANDALONE=1 PX4_SYS_AUTOSTART=4002 PX4_GZ_MODEL_POSE="2.0,1.0,1.0,0.00,0,-0.7" PX4_SIM_MODEL=gz_x500_mono_cam_down ./build/px4_sitl_default/bin/px4 -i 1
+  - PX4_Autopilot:
+      root: /root/PX4-Autopilot
+      layout: even-vertical
+      panes:
+        - PX4_GZ_STANDALONE=1 PX4_SYS_AUTOSTART=4002 PX4_GZ_MODEL_POSE="-2.0,1.0,1.0,0.00,0,-0.7" PX4_SIM_MODEL=gz_x500_mono_cam_down ./build/px4_sitl_default/bin/px4 -i 2
+  # - Dashboard:
+  #     root: /root/dronews/src/dronesim/
+  #     layout: even-vertical
+  #     panes: sleep 6 && python3 dashboard.py --port 14540 --sysid 1 --grpc-port 50051
+  # - Dashboard2:
+  #     root: /root/dronews/src/dronesim/
+  #     layout: even-vertical
+  #     panes: sleep 6 && python3 dashboard.py --port 14541 --sysid 2 --grpc-port 50052
+  - Dashboard:
+      root: /root/dronews/src/dronesim/
+      layout: even-vertical
+      panes: sleep 20 && python3 mission.py --port 14540 --sysid 1 --grpc-port 50051
+  - Dashboard:
+      root: /root/dronews/src/dronesim/
+      layout: even-vertical
+      panes: sleep 20 && python3 mission.py --port 14541 --sysid 2 --grpc-port 50052 
+  - Dashboard:
+      root: /root/dronews/src/dronesim/
+      layout: even-vertical
+      panes: sleep 20 && python3 mission.py --port 14542 --sysid 3 --grpc-port 50053
+  - Camera_Bridge:
+      root: /root
+      layout: even-vertical
+      panes: sleep 6 && ros2 run ros_gz_image image_bridge /camera

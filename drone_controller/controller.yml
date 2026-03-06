@@ -1,0 +1,17 @@
+# name: controller
+
+windows:
+  - mavlink_router:
+      layout: even-vertical
+      panes:
+        - mavlink-routerd -c /tmp/mavlink_router.conf
+
+  - mavsdk_server:
+      layout: even-vertical
+      panes:
+        - sleep 2 && mavsdk_server -p ${GRPC_PORT} udp://127.0.0.1:${LOCAL_MAVLINK_PORT}
+
+  - controller:
+      layout: even-vertical
+      panes:
+        - sleep 5 && python3 /app/controller.py
