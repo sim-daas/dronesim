@@ -35,22 +35,55 @@ document.addEventListener('click', (e) => {
     }
 });
 
-// Basic coordinate scaling from lat/lon to map pixels (to match simulator)
-// Since we use an ImageOverlay instead of real geo-tiles, we map simulated 
-// lat/lon coordinates (e.g. 47.3977) to the [0, 1000] pixel bounds.
+// Accurate coordinate scaling using physical map bounds and flat-earth approximation
 const SIM_HOME_LAT = 47.397742;
 const SIM_HOME_LON = 8.545594;
-const SCALE_FACTOR = 100000; // Degrees to arbitrary pixels
 
+// Physical dimensions from Gazebo and matching UI scale
+const GAZEBO_WORLD_METERS = 4514.0;
+const MAP_BOUNDS_PIXELS = 1000.0;
+const PIXELS_PER_METER = MAP_BOUNDS_PIXELS / GAZEBO_WORLD_METERS;
+
+// Flat earth projection constants (matches Python dashboard)
+const METERS_PER_DEGREE_LAT = 111320.0;
+const METERS_PER_DEGREE_LON = 111320.0 * Math.cos(SIM_HOME_LAT * (Math.PI / 180));
+
+/**
+ * Converts Geographic coordinates into Leaflet CRS.Simple map pixel coordinates.
+ */
 function geoToPixel(lat, lon) {
-    const y = 500 + (lat - SIM_HOME_LAT) * SCALE_FACTOR;
-    const x = 500 + (lon - SIM_HOME_LON) * SCALE_FACTOR;
+    // 1. Calculate physical meter difference from home origin
+    const latDiffMeters = (lat - SIM_HOME_LAT) * METERS_PER_DEGREE_LAT;
+    const lonDiffMeters = (lon - SIM_HOME_LON) * METERS_PER_DEGREE_LON;
+
+    // 2. Convert meters to map pixels 
+    // In Leaflet CRS.Simple, Y goes "up", matching Latitude
+    const pixelYDiff = latDiffMeters * PIXELS_PER_METER;
+    const pixelXDiff = lonDiffMeters * PIXELS_PER_METER;
+
+    // 3. Add to the defined center of map bounds (500, 500)
+    const y = 500 + pixelYDiff;
+    const x = 500 + pixelXDiff;
+
     return [y, x];
 }
 
+/**
+ * Converts Leaflet CRS.Simple map clicking pixels back to real Geographic coordinates.
+ */
 function pixelToGeo(y, x) {
-    const lat = SIM_HOME_LAT + (y - 500) / SCALE_FACTOR;
-    const lon = SIM_HOME_LON + (x - 500) / SCALE_FACTOR;
+    // 1. Calculate pixel difference from map center
+    const pixelYDiff = y - 500;
+    const pixelXDiff = x - 500;
+
+    // 2. Convert map pixels back to physical Gazebo meters
+    const meterYDiff = pixelYDiff / PIXELS_PER_METER;
+    const meterXDiff = pixelXDiff / PIXELS_PER_METER;
+
+    // 3. Reverse projecting meters to degrees, applying to home center
+    const lat = SIM_HOME_LAT + (meterYDiff / METERS_PER_DEGREE_LAT);
+    const lon = SIM_HOME_LON + (meterXDiff / METERS_PER_DEGREE_LON);
+
     return { lat, lon };
 }
 
