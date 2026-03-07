@@ -258,6 +258,9 @@ async def _process_commands():
                 if not waypoints:
                     raise ValueError("No waypoints provided")
                     
+                # Duplicate waypoints to create a continuous loop (simulating indefinite patrol)
+                waypoints = waypoints * 50
+                    
                 await drone.mission.clear_mission()
                 
                 mission_items = []

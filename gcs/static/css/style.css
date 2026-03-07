@@ -149,6 +149,11 @@ body {
     background: #111;
 }
 
+/* Smooth map marker movement */
+.leaflet-marker-icon {
+    transition: transform 0.5s linear, opacity 0.5s ease-in-out;
+}
+
 /* ─── Bottom Panels (Mission Planner & Console) ────────────────────────── */
 .bottom-panels {
     display: flex;

@@ -19,6 +19,22 @@ let missionPolyline = null;
 let droneMarkers = {};
 let mapBounds = [[0, 0], [1000, 1000]]; // Arbitrary bounds for image overlay
 
+// ─── Custom UI Helpers ─────────────────────────────────────────────────────
+
+function toggleDroneSelect() {
+    const opts = document.getElementById('drone-select-options');
+    if (opts) opts.classList.toggle('open');
+}
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.custom-multi-select')) {
+        const opts = document.getElementById('drone-select-options');
+        if (opts && opts.classList.contains('open')) {
+            opts.classList.remove('open');
+        }
+    }
+});
+
 // Basic coordinate scaling from lat/lon to map pixels (to match simulator)
 // Since we use an ImageOverlay instead of real geo-tiles, we map simulated 
 // lat/lon coordinates (e.g. 47.3977) to the [0, 1000] pixel bounds.
@@ -290,43 +306,55 @@ async function uploadMission() {
         return;
     }
 
-    const sel = document.getElementById('mission-drone-select');
-    const droneId = parseInt(sel.value);
-
-    addConsoleLog(`Uploading ${missionWaypoints.length} waypoints to Drone ${droneId}...`, 'info');
+    const checkboxes = document.querySelectorAll('.drone-cb:checked');
+    if (checkboxes.length === 0) {
+        alert("Please select at least one drone from the dropdown.");
+        return;
+    }
 
     const speedInput = parseFloat(document.getElementById('mission-speed').value);
     const speed = !isNaN(speedInput) ? speedInput : 5.0;
 
-    try {
-        const resp = await fetch(`/api/drone/${droneId}/mission/upload`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                waypoints: missionWaypoints,
-                speed: speed
-            }),
-        });
-        const result = await resp.json();
+    const droneIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+    addConsoleLog(`Uploading ${missionWaypoints.length} waypoints to Drones: ${droneIds.join(', ')}...`, 'info');
 
-        if (result.success) {
-            addConsoleLog(`✓ Mission uploaded to Drone ${droneId}`, 'success');
-        } else {
-            addConsoleLog(`✗ Mission upload failed: ${result.message}`, 'error');
+    for (const droneId of droneIds) {
+        try {
+            const resp = await fetch(`/api/drone/${droneId}/mission/upload`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    waypoints: missionWaypoints,
+                    speed: speed
+                }),
+            });
+            const result = await resp.json();
+
+            if (result.success) {
+                addConsoleLog(`✓ Mission uploaded to Drone ${droneId}`, 'success');
+            } else {
+                addConsoleLog(`✗ Drone ${droneId} upload failed: ${result.message}`, 'error');
+            }
+        } catch (err) {
+            addConsoleLog(`✗ Drone ${droneId} request failed: ${err.message}`, 'error');
         }
-    } catch (err) {
-        addConsoleLog(`✗ Mission upload request failed: ${err.message}`, 'error');
     }
 }
 
 function startMission() {
-    const droneId = parseInt(document.getElementById('mission-drone-select').value);
-    sendCommand(droneId, 'mission/start');
+    const checkboxes = document.querySelectorAll('.drone-cb:checked');
+    if (checkboxes.length === 0) return;
+    for (const cb of checkboxes) {
+        sendCommand(parseInt(cb.value), 'mission/start');
+    }
 }
 
 function pauseMission() {
-    const droneId = parseInt(document.getElementById('mission-drone-select').value);
-    sendCommand(droneId, 'mission/pause');
+    const checkboxes = document.querySelectorAll('.drone-cb:checked');
+    if (checkboxes.length === 0) return;
+    for (const cb of checkboxes) {
+        sendCommand(parseInt(cb.value), 'mission/pause');
+    }
 }
 
 // ─── Console ───────────────────────────────────────────────────────────────
