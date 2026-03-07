@@ -148,12 +148,14 @@ def telemetry_poller():
                                 current_wp = int(prog_str.split('/')[0])
                             except:
                                 current_wp = 0
-                            
-                            # Safely prevent out of bounds
-                            if current_wp >= len(state["mission_waypoints"]):
-                                current_wp = max(0, len(state["mission_waypoints"]) - 1)
                                 
-                            rem_wps = state["mission_waypoints"][current_wp:]
+                            base_wps = state["mission_waypoints"]
+                            
+                            if base_wps:
+                                idx = current_wp % len(base_wps)
+                                rem_wps = base_wps[idx:] + base_wps[:idx]
+                            else:
+                                rem_wps = []
                             
                             if rem_wps:
                                 threading.Thread(target=_execute_handoff, args=(relief_drone, rem_wps, state["mission_speed"])).start()
@@ -237,7 +239,7 @@ def upload_mission(drone_id):
 def start_mission(drone_id):
     with fleet_lock:
         fleet_state[drone_id]["mission_start_time"] = time.time()
-        fleet_state[drone_id]["battery_limit"] = random.randint(50, 60)
+        fleet_state[drone_id]["battery_limit"] = random.randint(150, 180)
         fleet_state[drone_id]["handoff_triggered"] = False
         fleet_state[drone_id]["nummissions"] += 1
     return _proxy_command(drone_id, "mission/start")
@@ -313,7 +315,7 @@ def _execute_handoff(relief_drone, waypoints, speed):
         fleet_state[relief_drone]["mission_waypoints"] = waypoints
         fleet_state[relief_drone]["mission_speed"] = speed
         fleet_state[relief_drone]["mission_start_time"] = time.time()
-        fleet_state[relief_drone]["battery_limit"] = random.randint(50, 60)
+        fleet_state[relief_drone]["battery_limit"] = random.randint(150, 180)
         fleet_state[relief_drone]["handoff_triggered"] = False
         fleet_state[relief_drone]["nummissions"] += 1
         
