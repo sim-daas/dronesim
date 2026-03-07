@@ -116,6 +116,12 @@ function updateDroneCard(droneId, telem) {
     const connected = telem.connected && telem.reachable;
     card.classList.toggle('connected', connected);
 
+    // Missions Counter
+    const missionsSpan = document.getElementById(`drone-${droneId}-missions`);
+    if (missionsSpan && telem.nummissions !== undefined) {
+        missionsSpan.textContent = telem.nummissions;
+    }
+
     // Connection badge
     const connBadge = document.getElementById(`drone-${droneId}-conn`);
     connBadge.textContent = connected ? 'ONLINE' : (telem.reachable ? 'NO PX4' : 'OFFLINE');

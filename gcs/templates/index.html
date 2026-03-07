@@ -106,7 +106,9 @@
                 <div class="card-header">
                     <div class="drone-id-badge">
                         <span class="drone-icon">⬡</span>
-                        <span>Drone {{ i }}</span>
+                        <span>Drone {{ i }} <span
+                                style="font-size: 0.75em; color: var(--info); margin-left: 4px;">(<span
+                                    id="drone-{{ i }}-missions">0</span> missions)</span></span>
                     </div>
                     <div class="status-badges">
                         <span class="badge badge-connection" id="drone-{{ i }}-conn">OFFLINE</span>

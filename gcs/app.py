@@ -12,6 +12,8 @@ import os
 import time
 import threading
 import logging
+import random
+import traceback
 from datetime import datetime
 
 import requests
@@ -41,7 +43,19 @@ log = logging.getLogger("gcs")
 # ─── Telemetry Cache ───────────────────────────────────────────────────────────
 
 fleet_telemetry = {}
-fleet_lock = threading.Lock()
+fleet_lock = threading.RLock()
+
+# State for relay handover
+fleet_state = {
+    i: {
+        "nummissions": 0,
+        "mission_waypoints": [],
+        "mission_speed": 5.0,
+        "mission_start_time": None,
+        "battery_limit": None,
+        "handoff_triggered": False
+    } for i in range(1, NUM_DRONES + 1)
+}
 
 # GCS-level log buffer
 gcs_logs = []
@@ -93,10 +107,67 @@ def poll_drone_telemetry(drone_id, base_url):
 def telemetry_poller():
     """Background thread: poll all drone controllers every 1s."""
     while True:
+        new_data = {}
         for drone_id, base_url in DRONE_CONTROLLERS.items():
-            data = poll_drone_telemetry(drone_id, base_url)
-            with fleet_lock:
+            new_data[drone_id] = poll_drone_telemetry(drone_id, base_url)
+            
+        with fleet_lock:
+            for drone_id, data in new_data.items():
+                if drone_id not in fleet_state:
+                    # In case dynamic drones are added later (not expected right now)
+                    fleet_state[drone_id] = {"nummissions": 0, "mission_waypoints": [], "mission_speed": 5.0, "mission_start_time": None, "battery_limit": None, "handoff_triggered": False}
+                
+                state = fleet_state[drone_id]
+                data["nummissions"] = state["nummissions"]
                 fleet_telemetry[drone_id] = data
+
+                # Relay Handover Logic
+                if data["armed"] and state["mission_start_time"] is not None and state["battery_limit"] is not None:
+                    elapsed = time.time() - state["mission_start_time"]
+                    
+                    # 1. Trigger handoff at T-10s
+                    if elapsed >= (state["battery_limit"] - 10) and not state["handoff_triggered"]:
+                        state["handoff_triggered"] = True
+                        add_gcs_log(f"⚠ Drone {drone_id} running low on simulated battery! Initiating handoff.")
+                        
+                        # Find relief drone
+                        relief_drone = None
+                        min_missions = float('inf')
+                        for cand_id, cand_data in fleet_telemetry.items():
+                            if cand_id == drone_id: continue
+                            if cand_data.get("connected") and not cand_data.get("armed"):
+                                if fleet_state[cand_id]["nummissions"] < min_missions:
+                                    min_missions = fleet_state[cand_id]["nummissions"]
+                                    relief_drone = cand_id
+                        
+                        if relief_drone:
+                            add_gcs_log(f"✓ Selected Drone {relief_drone} as relief (Missions: {min_missions})")
+                            
+                            prog_str = data.get("mission_progress", "0/0")
+                            try:
+                                current_wp = int(prog_str.split('/')[0])
+                            except:
+                                current_wp = 0
+                            
+                            # Safely prevent out of bounds
+                            if current_wp >= len(state["mission_waypoints"]):
+                                current_wp = max(0, len(state["mission_waypoints"]) - 1)
+                                
+                            rem_wps = state["mission_waypoints"][current_wp:]
+                            
+                            if rem_wps:
+                                threading.Thread(target=_execute_handoff, args=(relief_drone, rem_wps, state["mission_speed"])).start()
+                            else:
+                                add_gcs_log(f"⚠ Drone {drone_id} has no remaining waypoints to hand off.")
+                        else:
+                            add_gcs_log(f"✗ RELAY FAILED: No available relief drones for Drone {drone_id}!")
+
+                    # 2. Trigger RTL at T-0s (battery dead)
+                    if elapsed >= state["battery_limit"]:
+                        add_gcs_log(f"🔋 Drone {drone_id} simulated battery depleted. Forcing RTL.")
+                        state["mission_start_time"] = None # prevent re-triggering
+                        threading.Thread(target=_proxy_command, args=(drone_id, "rtl")).start()
+                        
         time.sleep(1)
 
 
@@ -154,11 +225,21 @@ def rtl_drone(drone_id):
 
 @app.route("/api/drone/<int:drone_id>/mission/upload", methods=["POST"])
 def upload_mission(drone_id):
-    return _proxy_command(drone_id, "mission/upload", request.get_json(silent=True))
+    payload = request.get_json(silent=True)
+    if payload:
+        with fleet_lock:
+            fleet_state[drone_id]["mission_waypoints"] = payload.get("waypoints", [])
+            fleet_state[drone_id]["mission_speed"] = payload.get("speed", 5.0)
+    return _proxy_command(drone_id, "mission/upload", payload)
 
 
 @app.route("/api/drone/<int:drone_id>/mission/start", methods=["POST"])
 def start_mission(drone_id):
+    with fleet_lock:
+        fleet_state[drone_id]["mission_start_time"] = time.time()
+        fleet_state[drone_id]["battery_limit"] = random.randint(50, 60)
+        fleet_state[drone_id]["handoff_triggered"] = False
+        fleet_state[drone_id]["nummissions"] += 1
     return _proxy_command(drone_id, "mission/start")
 
 
@@ -193,7 +274,7 @@ def _proxy_command(drone_id, action, payload=None):
     """Forward a command to a drone controller."""
     base_url = DRONE_CONTROLLERS.get(drone_id)
     if not base_url:
-        return jsonify({"error": f"Drone {drone_id} not configured"}), 404
+        return {"error": f"Drone {drone_id} not configured"}, 404
 
     add_gcs_log(f"Sending '{action}' to Drone {drone_id}")
 
@@ -206,19 +287,43 @@ def _proxy_command(drone_id, action, payload=None):
         result = resp.json()
         status = "✓" if result.get("success") else "✗"
         add_gcs_log(f"{status} Drone {drone_id} {action}: {result.get('message', '')}")
-        return jsonify(result), resp.status_code
+        return result, resp.status_code
     except requests.exceptions.ConnectionError:
         msg = f"Drone {drone_id} controller unreachable"
         add_gcs_log(f"✗ {msg}")
-        return jsonify({"success": False, "message": msg}), 503
+        return {"success": False, "message": msg}, 503
     except requests.exceptions.Timeout:
         msg = f"Drone {drone_id} command '{action}' timed out"
         add_gcs_log(f"✗ {msg}")
-        return jsonify({"success": False, "message": msg}), 504
+        return {"success": False, "message": msg}, 504
     except Exception as e:
         msg = f"Error: {e}"
         add_gcs_log(f"✗ {msg}")
-        return jsonify({"success": False, "message": msg}), 500
+        str_trace = traceback.format_exc()
+        for line in str_trace.split('\n'):
+            log.error(line)
+        return {"success": False, "message": msg}, 500
+
+
+def _execute_handoff(relief_drone, waypoints, speed):
+    """Background helper to dispatch the relief drone."""
+    payload = {"waypoints": waypoints, "speed": speed}
+    
+    with fleet_lock:
+        fleet_state[relief_drone]["mission_waypoints"] = waypoints
+        fleet_state[relief_drone]["mission_speed"] = speed
+        fleet_state[relief_drone]["mission_start_time"] = time.time()
+        fleet_state[relief_drone]["battery_limit"] = random.randint(50, 60)
+        fleet_state[relief_drone]["handoff_triggered"] = False
+        fleet_state[relief_drone]["nummissions"] += 1
+        
+    add_gcs_log(f"Uploading spliced mission ({len(waypoints)} wps) to Drone {relief_drone}")
+    _proxy_command(relief_drone, "mission/upload", payload)
+    
+    # Optional delay to allow mission digestion
+    time.sleep(1)
+    
+    _proxy_command(relief_drone, "mission/start")
 
 
 # ─── Main ──────────────────────────────────────────────────────────────────────
