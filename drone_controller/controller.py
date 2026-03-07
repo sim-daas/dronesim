@@ -288,6 +288,12 @@ async def _process_commands():
                 result_holder["message"] = f"Uploaded {len(mission_items)} waypoints"
 
             elif action == "start_mission":
+                try:
+                    await drone.action.arm()
+                    add_log("✓ Auto-armed drone for mission")
+                except Exception as e:
+                    add_log(f"⚠ Auto-arm skipped or failed: {e}")
+                
                 await drone.mission.start_mission()
                 add_log("✓ Started mission execution")
                 result_holder["success"] = True

@@ -34,37 +34,64 @@
 
     <!-- Main Dashboard Layout -->
     <div class="dashboard-layout">
-        <!-- Map Section (Left/Top) -->
-        <section class="map-section">
-            <div id="map"></div>
+        <!-- Main Area (Left) -->
+        <div class="main-area">
+            <div class="map-container">
+                <div id="map"></div>
+            </div>
 
-            <!-- Mission Planning Overlay -->
-            <div class="mission-overlay">
-                <div class="mission-header">
-                    <h3>Mission Planner</h3>
-                    <div class="mission-stats">
-                        <span id="wp-count">0 WPs</span>
-                        <span id="mission-dist">0.0 km</span>
+            <!-- Bottom Panels -->
+            <div class="bottom-panels">
+                <!-- Mission Planner -->
+                <div class="panel mission-panel">
+                    <div class="mission-header">
+                        <h3>Mission Planner</h3>
+                        <div class="mission-stats">
+                            <span id="wp-count">0 WPs</span>
+                            <span id="mission-dist">0.0 km</span>
+                        </div>
+                    </div>
+
+                    <div class="mission-inputs">
+                        <div class="input-group">
+                            <label>Altitude (m)</label>
+                            <input type="number" id="mission-alt" value="10" min="1">
+                        </div>
+                        <div class="input-group">
+                            <label>Speed (m/s)</label>
+                            <input type="number" id="mission-speed" value="5" min="1">
+                        </div>
+                    </div>
+
+                    <div class="mission-controls">
+                        <select id="mission-drone-select" class="drone-select">
+                            {% for i in range(1, num_drones + 1) %}
+                            <option value="{{ i }}">Drone {{ i }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-secondary" onclick="clearMission()" title="Clear dropped waypoints">CLEAR
+                            WPs</button>
+                        <button class="btn btn-accent" onclick="uploadMission()" style="width: 100%;"
+                            title="Upload to selected drone">UPLOAD</button>
+                        <div class="mission-action-buttons">
+                            <button class="btn btn-takeoff" onclick="startMission()"
+                                title="Start mission execution">START</button>
+                            <button class="btn btn-warning" onclick="pauseMission()"
+                                title="Pause mission execution">PAUSE</button>
+                        </div>
                     </div>
                 </div>
 
-                <div class="mission-controls">
-                    <button class="btn btn-secondary" onclick="clearMission()" title="Clear dropped waypoints">CLEAR
-                        WPs</button>
-                    <select id="mission-drone-select" class="drone-select">
-                        {% for i in range(1, num_drones + 1) %}
-                        <option value="{{ i }}">Drone {{ i }}</option>
-                        {% endfor %}
-                    </select>
-                    <button class="btn btn-accent" onclick="uploadMission()"
-                        title="Upload to selected drone">UPLOAD</button>
-                    <button class="btn btn-takeoff" onclick="startMission()"
-                        title="Start mission execution">START</button>
-                    <button class="btn btn-warning" onclick="pauseMission()"
-                        title="Pause mission execution">PAUSE</button>
+                <!-- System Console -->
+                <div class="panel console-panel">
+                    <div class="console-header">
+                        <h3>System Console</h3>
+                        <button class="btn btn-small" onclick="clearConsole()">Clear</button>
+                    </div>
+                    <div id="console-output"></div>
                 </div>
             </div>
-        </section>
+        </div>
 
         <!-- Fleet Overview (Right/Bottom) -->
         <main id="fleet-container">
@@ -140,14 +167,8 @@
         </main>
     </div>
 
-    <!-- System Console -->
-    <section id="console-section">
-        <div class="console-header">
-            <h2>System Console</h2>
-            <button class="btn btn-small" onclick="clearConsole()">Clear</button>
-        </div>
-        <div id="console-output"></div>
-    </section>
+    </main>
+    </div>
 
     <script src="/static/js/dashboard.js"></script>
 </body>

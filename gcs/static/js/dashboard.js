@@ -7,7 +7,7 @@
 
 // ─── Configuration ─────────────────────────────────────────────────────────
 
-const POLL_INTERVAL_MS = 1000;
+const POLL_INTERVAL_MS = 200;
 const LOG_POLL_INTERVAL_MS = 2000;
 let logIndex = 0;
 
@@ -44,8 +44,6 @@ function initMap() {
     // Create map with arbitrary CRS for image overlay
     map = L.map('map', {
         crs: L.CRS.Simple,
-        minZoom: -2,
-        maxZoom: 2,
         center: [500, 500],
         zoom: 0
     });
@@ -248,10 +246,11 @@ function onMapClick(e) {
     missionPolyline.addLatLng(latlng);
 
     // Store actual geo coordinates for the drone
+    const altInput = parseFloat(document.getElementById('mission-alt').value);
     missionWaypoints.push({
         lat: geo.lat,
         lon: geo.lon,
-        alt: parseFloat(prompt("Waypoint Altitude (meters):", "10")) || 10.0
+        alt: !isNaN(altInput) ? altInput : 10.0
     });
 
     updateMissionStats();
@@ -296,13 +295,16 @@ async function uploadMission() {
 
     addConsoleLog(`Uploading ${missionWaypoints.length} waypoints to Drone ${droneId}...`, 'info');
 
+    const speedInput = parseFloat(document.getElementById('mission-speed').value);
+    const speed = !isNaN(speedInput) ? speedInput : 5.0;
+
     try {
         const resp = await fetch(`/api/drone/${droneId}/mission/upload`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 waypoints: missionWaypoints,
-                speed: 5.0
+                speed: speed
             }),
         });
         const result = await resp.json();

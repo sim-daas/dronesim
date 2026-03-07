@@ -46,4 +46,11 @@ COPY simulation/QGC.AppImage /app/QGC.AppImage
 RUN chmod +x /app/entrypoint.sh /app/QGC.AppImage && \
     chown -R qgc:qgc /app
 
+# Copy custom worlds and models
+COPY simulation/worlds/1759211374975/ /root/.gz/models/1759211374975/
+COPY simulation/worlds/arucotag/ /root/.gz/models/arucotag/
+COPY simulation/worlds/1759211374975/ /root/.gz/fuel/fuel.ignitionrobotics.org/openrobotics/models/1759211374975/
+COPY simulation/worlds/arucotag/ /root/.gz/fuel/fuel.ignitionrobotics.org/openrobotics/models/arucotag/
+COPY simulation/worlds/default.sdf /root/PX4-Autopilot/Tools/simulation/gz/worlds/default.sdf
+
 CMD ["/app/entrypoint.sh"]
