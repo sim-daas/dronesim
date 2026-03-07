@@ -16,9 +16,10 @@ import threading
 import logging
 from datetime import datetime
 
-from flask import Flask, jsonify, request
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from mavsdk import System
+from mavsdk.mission import MissionItem, MissionPlan
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
 
@@ -27,6 +28,7 @@ GRPC_PORT = int(os.environ.get("GRPC_PORT", 50051))
 LOCAL_MAVLINK_PORT = int(os.environ.get("LOCAL_MAVLINK_PORT", 14580))
 API_PORT = int(os.environ.get("API_PORT", 5001))
 MAV_SYS_ID = int(os.environ.get("MAV_SYS_ID", DRONE_ID))
+BATTERY_RTL_THRESHOLD = float(os.environ.get("BATTERY_RTL_THRESHOLD", 20.0))
 
 # ─── Logging ───────────────────────────────────────────────────────────────────
 
@@ -53,6 +55,8 @@ telemetry = {
     "gps_fix_type": "No GPS",
     "gps_num_satellites": 0,
     "heading_deg": 0.0,
+    "mission_progress": "0/0",
+    "rtl_triggered": False,
     "last_update": None,
 }
 telemetry_lock = threading.Lock()
@@ -121,6 +125,7 @@ async def monitor_telemetry():
         _monitor_velocity(),
         _monitor_gps(),
         _monitor_heading(),
+        _monitor_mission_progress(),
         _process_commands(),
     )
 
@@ -140,9 +145,29 @@ async def _monitor_position():
 
 async def _monitor_battery():
     async for battery in drone.telemetry.battery():
+        percent = round(battery.remaining_percent * 100, 1)
+        trigger_rtl = False
+        
         with telemetry_lock:
-            telemetry["battery_percent"] = round(battery.remaining_percent * 100, 1)
+            telemetry["battery_percent"] = percent
             telemetry["battery_voltage"] = round(battery.voltage_v, 2)
+            
+            # Fail-safe logic
+            if percent < BATTERY_RTL_THRESHOLD and telemetry["armed"] and not telemetry["rtl_triggered"]:
+                telemetry["rtl_triggered"] = True
+                trigger_rtl = True
+                
+            # Reset flag if manually recharged/rearmed above threshold
+            if percent >= BATTERY_RTL_THRESHOLD and telemetry["rtl_triggered"] and not telemetry["armed"]:
+                telemetry["rtl_triggered"] = False
+                
+        if trigger_rtl:
+            add_log(f"⚠ CRITICAL: Battery at {percent}%. Triggering automatic RTL!")
+            # Execute RTL directly (bypassing queue for immediacy, though queue is also fine)
+            try:
+                await drone.action.return_to_launch()
+            except Exception as e:
+                add_log(f"✗ Auto-RTL failed: {e}")
 
 
 async def _monitor_flight_mode():
@@ -177,6 +202,11 @@ async def _monitor_heading():
         with telemetry_lock:
             telemetry["heading_deg"] = round(heading.heading_deg, 1)
 
+
+async def _monitor_mission_progress():
+    async for progress in drone.mission.mission_progress():
+        with telemetry_lock:
+            telemetry["mission_progress"] = f"{progress.current}/{progress.total}"
 
 # ─── Command Queue Processor ──────────────────────────────────────────────────
 
@@ -220,6 +250,54 @@ async def _process_commands():
                 add_log("✓ RTL command sent")
                 result_holder["success"] = True
                 result_holder["message"] = "Returning to launch"
+
+            elif action == "upload_mission":
+                waypoints = params.get("waypoints", [])
+                speed = float(params.get("speed", 5.0))
+                
+                if not waypoints:
+                    raise ValueError("No waypoints provided")
+                    
+                await drone.mission.clear_mission()
+                
+                mission_items = []
+                for wp in waypoints:
+                    mission_item = MissionItem(
+                        float(wp['lat']),                   
+                        float(wp['lon']),                   
+                        float(wp.get('alt', 10.0)),                   
+                        speed,                              
+                        True,                               
+                        float('nan'),                       
+                        float('nan'),                       
+                        MissionItem.CameraAction.NONE,      
+                        float('nan'),                       
+                        float('nan'),                       
+                        1.0,                                
+                        float('nan'),                       
+                        float('nan'),                       
+                        MissionItem.VehicleAction.NONE                              
+                    )
+                    mission_items.append(mission_item)
+                
+                mission_plan = MissionPlan(mission_items)
+                await drone.mission.upload_mission(mission_plan)
+                
+                add_log(f"✓ Mission uploaded ({len(mission_items)} waypoints)")
+                result_holder["success"] = True
+                result_holder["message"] = f"Uploaded {len(mission_items)} waypoints"
+
+            elif action == "start_mission":
+                await drone.mission.start_mission()
+                add_log("✓ Started mission execution")
+                result_holder["success"] = True
+                result_holder["message"] = "Mission started"
+
+            elif action == "pause_mission":
+                await drone.mission.pause_mission()
+                add_log("✓ Paused mission")
+                result_holder["success"] = True
+                result_holder["message"] = "Mission paused"
 
             else:
                 result_holder["success"] = False
@@ -314,6 +392,27 @@ def land():
 @app.route("/rtl", methods=["POST"])
 def rtl():
     result = send_command("rtl")
+    return jsonify(result), 200 if result["success"] else 500
+
+
+@app.route("/mission/upload", methods=["POST"])
+def upload_mission():
+    data = request.get_json(silent=True) or {}
+    waypoints = data.get("waypoints", [])
+    speed = data.get("speed", 5.0)
+    result = send_command("upload_mission", {"waypoints": waypoints, "speed": speed})
+    return jsonify(result), 200 if result["success"] else 500
+
+
+@app.route("/mission/start", methods=["POST"])
+def start_mission():
+    result = send_command("start_mission")
+    return jsonify(result), 200 if result["success"] else 500
+
+
+@app.route("/mission/pause", methods=["POST"])
+def pause_mission():
+    result = send_command("pause_mission")
     return jsonify(result), 200 if result["success"] else 500
 
 

@@ -11,6 +11,56 @@ const POLL_INTERVAL_MS = 1000;
 const LOG_POLL_INTERVAL_MS = 2000;
 let logIndex = 0;
 
+// ─── Map & Mission State ───────────────────────────────────────────────────
+
+let map = null;
+let missionWaypoints = [];
+let missionPolyline = null;
+let droneMarkers = {};
+let mapBounds = [[0, 0], [1000, 1000]]; // Arbitrary bounds for image overlay
+
+// Basic coordinate scaling from lat/lon to map pixels (to match simulator)
+// Since we use an ImageOverlay instead of real geo-tiles, we map simulated 
+// lat/lon coordinates (e.g. 47.3977) to the [0, 1000] pixel bounds.
+const SIM_HOME_LAT = 47.397742;
+const SIM_HOME_LON = 8.545594;
+const SCALE_FACTOR = 100000; // Degrees to arbitrary pixels
+
+function geoToPixel(lat, lon) {
+    const y = 500 + (lat - SIM_HOME_LAT) * SCALE_FACTOR;
+    const x = 500 + (lon - SIM_HOME_LON) * SCALE_FACTOR;
+    return [y, x];
+}
+
+function pixelToGeo(y, x) {
+    const lat = SIM_HOME_LAT + (y - 500) / SCALE_FACTOR;
+    const lon = SIM_HOME_LON + (x - 500) / SCALE_FACTOR;
+    return { lat, lon };
+}
+
+// ─── Initialization ────────────────────────────────────────────────────────
+
+function initMap() {
+    // Create map with arbitrary CRS for image overlay
+    map = L.map('map', {
+        crs: L.CRS.Simple,
+        minZoom: -2,
+        maxZoom: 2,
+        center: [500, 500],
+        zoom: 0
+    });
+
+    const imageUrl = '/static/images/back.png';
+    L.imageOverlay(imageUrl, mapBounds).addTo(map);
+    map.fitBounds(mapBounds);
+
+    // Mission polyline
+    missionPolyline = L.polyline([], { color: '#1E90FF', weight: 3, dashArray: '5, 10' }).addTo(map);
+
+    map.on('click', onMapClick);
+    addConsoleLog('Map initialized with custom backdrop', 'success');
+}
+
 // ─── Telemetry Polling ─────────────────────────────────────────────────────
 
 async function pollFleet() {
@@ -87,6 +137,46 @@ function updateDroneCard(droneId, telem) {
         ? `${telem.gps_fix_type} (${telem.gps_num_satellites})`
         : '--';
     setTelem(droneId, 'gps', gpsText);
+
+    // Update Map Marker
+    if (connected && telem.lat && telem.lon) {
+        updateMapMarker(droneId, telem);
+    }
+}
+
+function updateMapMarker(droneId, telem) {
+    if (!map) return;
+
+    const pos = geoToPixel(telem.lat, telem.lon);
+
+    // Create colored icon based on drone ID
+    const colors = ['#1E90FF', '#00FF85', '#FF6F61', '#9b59b6', '#e67e22'];
+    const color = colors[(droneId - 1) % colors.length];
+
+    if (!droneMarkers[droneId]) {
+        const iconHtml = `
+            <div style="background-color: ${color}; width: 16px; height: 16px; border-radius: 50%; 
+                        border: 2px solid white; box-shadow: 0 0 10px ${color}; 
+                        display: flex; align-items: center; justify-content: center;
+                        font-family: inherit; font-size: 10px; font-weight: bold; color: white;">
+                ${droneId}
+            </div>
+        `;
+
+        const icon = L.divIcon({
+            className: 'custom-drone-icon',
+            html: iconHtml,
+            iconSize: [16, 16],
+            iconAnchor: [8, 8]
+        });
+
+        droneMarkers[droneId] = L.marker(pos, { icon: icon })
+            .bindTooltip(`Drone ${droneId}<br>Alt: ${telem.alt.toFixed(1)}m<br>Bat: ${telem.battery_percent.toFixed(0)}%`)
+            .addTo(map);
+    } else {
+        droneMarkers[droneId].setLatLng(pos);
+        droneMarkers[droneId].getTooltip().setContent(`Drone ${droneId}<br>Alt: ${telem.alt.toFixed(1)}m<br>Bat: ${telem.battery_percent.toFixed(0)}%`);
+    }
 }
 
 function setTelem(droneId, field, value) {
@@ -146,6 +236,97 @@ async function sendTakeoff(droneId) {
     }
 }
 
+// ─── Mission Planning ──────────────────────────────────────────────────────
+
+function onMapClick(e) {
+    const latlng = e.latlng;
+
+    // Convert back from pixel space to pseudo-geo coordinates for PX4
+    const geo = pixelToGeo(latlng.lat, latlng.lng);
+
+    // Draw on map using pixel latlng
+    missionPolyline.addLatLng(latlng);
+
+    // Store actual geo coordinates for the drone
+    missionWaypoints.push({
+        lat: geo.lat,
+        lon: geo.lon,
+        alt: parseFloat(prompt("Waypoint Altitude (meters):", "10")) || 10.0
+    });
+
+    updateMissionStats();
+}
+
+function updateMissionStats() {
+    document.getElementById('wp-count').textContent = `${missionWaypoints.length} WPs`;
+
+    if (missionWaypoints.length < 2) {
+        document.getElementById('mission-dist').textContent = "0.0 km";
+        return;
+    }
+
+    let dist = 0;
+    // VERY rough distance estimation (Pythagorean on lat/lon)
+    for (let i = 1; i < missionWaypoints.length; i++) {
+        const w1 = missionWaypoints[i - 1];
+        const w2 = missionWaypoints[i];
+        const dLat = (w2.lat - w1.lat) * 111320; // rough meters per degree lat
+        const dLon = (w2.lon - w1.lon) * 111320 * Math.cos(w1.lat * (Math.PI / 180));
+        dist += Math.sqrt(dLat * dLat + dLon * dLon);
+    }
+
+    document.getElementById('mission-dist').textContent = `${(dist / 1000).toFixed(2)} km`;
+}
+
+function clearMission() {
+    missionWaypoints = [];
+    if (missionPolyline) missionPolyline.setLatLngs([]);
+    updateMissionStats();
+    addConsoleLog('Mission waypoints cleared', 'info');
+}
+
+async function uploadMission() {
+    if (missionWaypoints.length === 0) {
+        alert("Please click on the map to add waypoints first.");
+        return;
+    }
+
+    const sel = document.getElementById('mission-drone-select');
+    const droneId = parseInt(sel.value);
+
+    addConsoleLog(`Uploading ${missionWaypoints.length} waypoints to Drone ${droneId}...`, 'info');
+
+    try {
+        const resp = await fetch(`/api/drone/${droneId}/mission/upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                waypoints: missionWaypoints,
+                speed: 5.0
+            }),
+        });
+        const result = await resp.json();
+
+        if (result.success) {
+            addConsoleLog(`✓ Mission uploaded to Drone ${droneId}`, 'success');
+        } else {
+            addConsoleLog(`✗ Mission upload failed: ${result.message}`, 'error');
+        }
+    } catch (err) {
+        addConsoleLog(`✗ Mission upload request failed: ${err.message}`, 'error');
+    }
+}
+
+function startMission() {
+    const droneId = parseInt(document.getElementById('mission-drone-select').value);
+    sendCommand(droneId, 'mission/start');
+}
+
+function pauseMission() {
+    const droneId = parseInt(document.getElementById('mission-drone-select').value);
+    sendCommand(droneId, 'mission/pause');
+}
+
 // ─── Console ───────────────────────────────────────────────────────────────
 
 function addConsoleLog(message, type = 'info') {
@@ -195,6 +376,7 @@ async function pollLogs() {
 // ─── Initialize ────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+    initMap();
     addConsoleLog('GCS Dashboard initialized', 'info');
     addConsoleLog('Starting fleet telemetry polling...', 'info');
 

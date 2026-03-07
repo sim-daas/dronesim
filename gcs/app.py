@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+
 """
 GCS Web Dashboard — Flask backend.
 
@@ -149,6 +150,21 @@ def land_drone(drone_id):
 @app.route("/api/drone/<int:drone_id>/rtl", methods=["POST"])
 def rtl_drone(drone_id):
     return _proxy_command(drone_id, "rtl")
+
+
+@app.route("/api/drone/<int:drone_id>/mission/upload", methods=["POST"])
+def upload_mission(drone_id):
+    return _proxy_command(drone_id, "mission/upload", request.get_json(silent=True))
+
+
+@app.route("/api/drone/<int:drone_id>/mission/start", methods=["POST"])
+def start_mission(drone_id):
+    return _proxy_command(drone_id, "mission/start")
+
+
+@app.route("/api/drone/<int:drone_id>/mission/pause", methods=["POST"])
+def pause_mission(drone_id):
+    return _proxy_command(drone_id, "mission/pause")
 
 
 @app.route("/api/logs", methods=["GET"])
