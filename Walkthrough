@@ -1,0 +1,307 @@
+# Surveillance Drone System — Full Codebase Record
+
+> **Date**: 2026-03-09 | **Phases Complete**: Phase 1 (Foundation) + Phase 2 (Mission & Relay)
+
+---
+
+## 1. System Architecture
+
+```mermaid
+graph TB
+    subgraph "Host Machine"
+        BROWSER["Web Browser :8080"]
+    end
+
+    subgraph "Docker Compose Stack"
+        subgraph "drone-sim-net 10.42.0.0/16"
+            SIM_ROS["ROS2 / Gazebo Sensors"]
+        end
+
+        subgraph "drone-ctrl-net 10.43.0.0/16"
+            SIM["Simulation Container<br/>4× PX4 SITL + Gazebo<br/>10.43.0.100"]
+            DC1["Controller 1<br/>mavlink-router → :14540<br/>REST :5001"]
+            DC2["Controller 2<br/>mavlink-router → :14541<br/>REST :5002"]
+            DC3["Controller 3<br/>mavlink-router → :14542<br/>REST :5003"]
+            DC4["Controller 4<br/>mavlink-router → :14543<br/>REST :5004"]
+            GCS["GCS Backend<br/>Flask + Relay Engine<br/>:8080"]
+        end
+    end
+
+    SIM_ROS -.- SIM
+    SIM -->|"UDP MAVLink"| DC1 & DC2 & DC3 & DC4
+    DC1 & DC2 & DC3 & DC4 <-->|"REST API"| GCS
+    GCS <-->|"HTTP"| BROWSER
+```
+
+### Container Breakdown
+
+| Container | Image Base | Role | Network |
+|---|---|---|---|
+| `dronesim-simulation` | `monemati/px4_ros2_gazebo_yolov8` | Gazebo world + 4× PX4 SITL + XRCE-DDS Agent | Both networks |
+| `dronesim-controller-{1..4}` | `python:3.10-slim` | Per-drone: mavlink-router → mavsdk_server → controller.py | ctrl-net only |
+| `dronesim-gcs` | `python:3.10-slim` | Flask web dashboard + relay handover engine | ctrl-net only |
+
+### Network Topology
+
+- **`drone-sim-net` (10.42.0.0/16)**: Reserved for future ROS2 sensor data bridging (camera feeds, point clouds).
+- **`drone-ctrl-net` (10.43.0.0/16)**: All MAVLink and REST traffic flows here. Each controller has a fixed IP (`10.43.0.1x`) to prevent IP drift on restart.
+
+---
+
+## 2. Detailed Code Walkthrough
+
+### 2.1 Simulation Container
+
+**Config**: [sim.yml](file:///home/ubuntu/githubrepos/dronesim/simulation/sim.yml)
+
+Uses `tmuxinator` to orchestrate inside the container:
+
+| Window | Process | Purpose |
+|---|---|---|
+| `Micro_XRCE_Agent` | `MicroXRCEAgent udp4 -p 8888` | DDS bridge for ROS2 topics |
+| `PX4_1` | PX4 SITL instance 0 | First drone (no `PX4_GZ_STANDALONE`) |
+| `PX4_2` | PX4 SITL instance 1 | Drone 2 (`PX4_GZ_STANDALONE=1`, `-i 1`) |
+| `PX4_3` | PX4 SITL instance 2 | Drone 3 (`PX4_GZ_STANDALONE=1`, `-i 2`) |
+| `PX4_4` | PX4 SITL instance 3 | Drone 4 (`PX4_GZ_STANDALONE=1`, `-i 3`) |
+| `Camera_Bridge` | `ros2 run ros_gz_image image_bridge` | Forwards `/camera` topic from Gazebo to ROS2 |
+
+Each PX4 instance gets a unique spawn position via `PX4_GZ_MODEL_POSE` and uses the `gz_x500_mono_cam_down` model with a downward-facing camera.
+
+---
+
+### 2.2 Drone Controller — [controller.py](file:///home/ubuntu/githubrepos/dronesim/drone_controller/controller.py)
+
+This is the per-drone "brain". Each of the 4 controller containers runs its own instance.
+
+#### Architecture Pattern: Async/Sync Bridge
+
+```mermaid
+graph LR
+    FLASK["Flask Thread<br/>(synchronous)"] -->|"asyncio.Queue"| MAVSDK["MAVSDK Event Loop<br/>(async)"]
+    MAVSDK -->|"result dict"| FLASK
+    MAVSDK -->|"UDP MAVLink"| PX4["PX4 SITL"]
+```
+
+- **Main thread**: Runs `asyncio.run(main())` — the MAVSDK event loop.
+- **Background thread**: Flask REST API on port `500x`.
+- **Bridge**: `send_command()` pushes a dict onto `asyncio.Queue`, then busy-waits (max 10s) for `result["done"] = True`.
+
+#### Telemetry Monitors (8 concurrent coroutines)
+
+| Coroutine | Data Source | Stored Field |
+|---|---|---|
+| `_monitor_position` | `drone.telemetry.position()` | `lat`, `lon`, `alt` |
+| `_monitor_battery` | `drone.telemetry.battery()` | `battery_percent`, `battery_voltage` |
+| `_monitor_flight_mode` | `drone.telemetry.flight_mode()` | `flight_mode` |
+| `_monitor_armed` | `drone.telemetry.armed()` | `armed` |
+| `_monitor_velocity` | `drone.telemetry.velocity_ned()` | `ground_speed` |
+| `_monitor_gps` | `drone.telemetry.gps_info()` | `gps_fix_type`, `gps_num_satellites` |
+| `_monitor_heading` | `drone.telemetry.heading()` | `heading_deg` |
+| `_monitor_mission_progress` | `drone.mission.mission_progress()` | `mission_progress` (e.g. `"5/100"`) |
+
+#### REST API Endpoints
+
+| Method | Route | Action |
+|---|---|---|
+| `GET` | `/telemetry` | Returns full telemetry snapshot |
+| `GET` | `/status` | Quick health check |
+| `GET` | `/logs` | Returns log buffer (with `?since=N`) |
+| `POST` | `/arm` | Arms motors |
+| `POST` | `/disarm` | Disarms motors |
+| `POST` | `/takeoff` | Sets altitude and takes off |
+| `POST` | `/land` | Lands at current position |
+| `POST` | `/rtl` | Returns to launch |
+| `POST` | `/mission/upload` | Clears mission, uploads waypoints (×50 for looping) |
+| `POST` | `/mission/start` | Auto-arms and starts uploaded mission |
+| `POST` | `/mission/pause` | Pauses mission execution |
+
+#### Continuous Patrol Loop
+
+When the GCS uploads waypoints (e.g. 2 waypoints), `controller.py` multiplies them ×50 to create 100 MAVSDK `MissionItem`s. This forces the drone to loop through the patrol path indefinitely until the GCS commands RTL.
+
+```python
+# controller.py line 262
+waypoints = waypoints * 50  # Creates continuous patrol loop
+```
+
+---
+
+### 2.3 GCS Backend — [app.py](file:///home/ubuntu/githubrepos/dronesim/gcs/app.py)
+
+The Flask backend serves two purposes:
+1. **REST Proxy**: Forwards UI commands to the correct drone controller.
+2. **Relay Handover Engine**: Manages simulated battery drain and automated drone relay.
+
+#### Fleet State Tracking
+
+```python
+fleet_state = {
+    drone_id: {
+        "nummissions": 0,           # Lifetime mission count
+        "mission_waypoints": [],    # Base waypoint array (pre-duplication)
+        "mission_speed": 5.0,       # m/s
+        "mission_start_time": None, # epoch timestamp when START was clicked
+        "battery_limit": None,      # Random 150-180 seconds
+        "handoff_triggered": False  # Prevents double-triggering
+    }
+}
+```
+
+#### Relay Handover Engine (Background Thread)
+
+The `telemetry_poller()` runs every 1 second and evaluates each armed drone:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Flying: Mission Start
+    Flying --> Warning: elapsed ≥ (battery_limit - 10s)
+    Warning --> Depleted: elapsed ≥ battery_limit
+    Warning --> ReliefDispatched: Find idle drone
+    Depleted --> RTL: Force Return-to-Launch
+    RTL --> Landed: Drone disarms
+    Landed --> [*]: Available for future relay
+    ReliefDispatched --> Flying: Relief drone takes over
+```
+
+**Step-by-step execution**:
+
+1. **T minus 10 seconds**: GCS scans fleet for the best relief drone (`armed == False`, `connected == True`, lowest `nummissions`).
+2. **Mission Splicing**: Uses modulo arithmetic to determine which base waypoint the dying drone is currently at, then rotates the waypoint array so the relief drone starts exactly where the dying drone will leave off.
+3. **Auto-Dispatch**: Uploads the rotated waypoints to the relief drone and commands `mission/start`.
+4. **T equals 0**: GCS commands `RTL` on the dying drone.
+5. **Post-Landing**: Drone becomes available for future relay (simulated instant recharge).
+
+#### Waypoint Splicing Math
+
+```python
+base_wps = state["mission_waypoints"]   # e.g. [A, B] (original 2 waypoints)
+# MAVSDK reports progress as "15/100" (out of 50× duplicated array)
+current_wp = int(prog_str.split('/')[0])  # e.g. 15
+idx = current_wp % len(base_wps)           # e.g. 15 % 2 = 1 → currently at B
+rem_wps = base_wps[idx:] + base_wps[:idx]  # [B, A] — start from B, then loop
+```
+
+---
+
+### 2.4 Web Dashboard
+
+#### Frontend Files
+
+| File | Role |
+|---|---|
+| [index.html](file:///home/ubuntu/githubrepos/dronesim/gcs/templates/index.html) | Jinja2 template: header, map, mission planner, console, 4 drone cards |
+| [style.css](file:///home/ubuntu/githubrepos/dronesim/gcs/static/css/style.css) | Dark theme CSS with Inter font, glassmorphism cards, animated badges |
+| [dashboard.js](file:///home/ubuntu/githubrepos/dronesim/gcs/static/js/dashboard.js) | 200ms fleet polling, Leaflet.js map, mission planning, command dispatch |
+
+#### Map System
+
+Uses Leaflet.js with `CRS.Simple` (pixel coordinates) overlaying a custom satellite image (`back.png`).
+
+**Coordinate Conversion**: Flat-earth projection centered on `SIM_HOME_LAT/LON (47.397742, 8.545594)`:
+
+```
+Geographic → Pixel:  pixel = 500 + (latDiff × 111320 × pixelsPerMeter)
+Pixel → Geographic:  lat = HOME + ((pixel - 500) / pixelsPerMeter / 111320)
+```
+
+#### UI Features
+
+- **Multi-drone selection**: Custom checkbox dropdown for selecting multiple drones for mission upload/start.
+- **Motion smoothing**: CSS transition `0.5s linear` on `.leaflet-marker-icon` for realistic drone movement.
+- **Missions counter**: Each drone card displays `(X missions)` badge tracking relay handover count.
+- **200ms polling**: Fleet telemetry updates 5× per second for smooth real-time visualization.
+
+---
+
+## 3. Bugs Encountered & Fixes
+
+### Bug 1: GCS Deadlock on Relay Trigger
+
+| | |
+|---|---|
+| **Symptom** | GCS froze completely when a drone hit the battery limit. Dashboard stopped updating. |
+| **Root Cause** | `telemetry_poller()` held `fleet_lock` (a standard `threading.Lock()`) while calling `add_gcs_log()`, which also tried to acquire `fleet_lock`. Since `Lock()` is not reentrant, the thread deadlocked itself. |
+| **Fix** | Changed `fleet_lock = threading.Lock()` → `fleet_lock = threading.RLock()` (reentrant lock). |
+| **File** | [app.py](file:///home/ubuntu/githubrepos/dronesim/gcs/app.py) line 46 |
+
+---
+
+### Bug 2: "Working outside of application context" Crash
+
+| | |
+|---|---|
+| **Symptom** | Relief drone upload succeeded, but `mission/start` crashed with `RuntimeError: Working outside of application context`. |
+| **Root Cause** | The background `_execute_handoff()` thread called `_proxy_command()`, which used Flask's `jsonify()` to build return values. `jsonify()` requires an active Flask request context, which doesn't exist in background threads. |
+| **Fix** | Replaced all `jsonify({...})` returns in `_proxy_command()` with raw Python dictionaries `{...}`. Flask auto-converts dicts to JSON in request handlers, and background threads simply ignore the return value. |
+| **File** | [app.py](file:///home/ubuntu/githubrepos/dronesim/gcs/app.py) lines 275-307 |
+
+---
+
+### Bug 3: Docker Image Not Updating on Restart
+
+| | |
+|---|---|
+| **Symptom** | After fixing Bug 2 in the source code and running `docker compose restart gcs`, the exact same error persisted. |
+| **Root Cause** | The GCS Dockerfile copies `app.py` into the image at build time (`COPY gcs/ /app/`). A `restart` only stops/starts the existing container image — it does **not** re-copy updated source files. |
+| **Fix** | Used `docker compose build gcs && docker compose up -d gcs` to rebuild the image with the latest source before restarting. |
+
+---
+
+### Bug 4: Relief Drone Holding Position Instead of Flying
+
+| | |
+|---|---|
+| **Symptom** | Drone 2 (relief) received the mission and took off but immediately entered `HOLD` mode instead of flying the patrol. |
+| **Root Cause** | `controller.py` duplicates waypoints ×50, so MAVSDK reports progress as e.g. `"15/100"`. The GCS was using `waypoints[15:]` on the base array (which only had 2 items), producing a single leftover waypoint — not enough for a patrol loop. |
+| **Fix** | Used modulo arithmetic: `idx = current_wp % len(base_wps)`, then rotated the full base array to start from the correct position: `rem_wps = base_wps[idx:] + base_wps[:idx]`. This gives the relief drone a complete, correctly-rotated patrol loop. |
+| **File** | [app.py](file:///home/ubuntu/githubrepos/dronesim/gcs/app.py) lines 152-158 |
+
+---
+
+### Bug 5: Relief Drone Battery Limit Mismatch
+
+| | |
+|---|---|
+| **Symptom** | Drone 2 hit "low battery" only ~10 seconds after starting, instead of 150-180 seconds. |
+| **Root Cause** | The user updated `start_mission()` to use `random.randint(150, 180)`, but `_execute_handoff()` still used the old `random.randint(50, 60)`. The relief drone inherited the short timer. |
+| **Fix** | Synchronized `_execute_handoff()` to also use `random.randint(150, 180)`. |
+| **File** | [app.py](file:///home/ubuntu/githubrepos/dronesim/gcs/app.py) line 318 |
+
+---
+
+## 4. Current Working State (as of 2026-03-09)
+
+| Feature | Status | Notes |
+|---|---|---|
+| 4× PX4 SITL in Gazebo | ✅ Working | Controlled via QGC or web dashboard |
+| Per-drone MAVLink isolation | ✅ Working | No crosstalk between controllers |
+| Web dashboard telemetry | ✅ Working | 200ms polling, smooth map markers |
+| Arm / Disarm / Takeoff / Land / RTL | ✅ Working | Per-drone from dashboard |
+| Mission upload (click-to-plan) | ✅ Working | Leaflet map with custom satellite overlay |
+| Multi-drone mission selection | ✅ Working | Checkbox dropdown UI |
+| Continuous waypoint looping | ✅ Working | ×50 duplication in controller |
+| Simulated battery drain | ✅ Working | 150-180s random timer per mission |
+| Automated relay handover | ✅ Working | GCS selects idle drone, splices mission, dispatches |
+| RTL on battery depletion | ✅ Working | Forced by GCS at timer expiry |
+| Missions counter UI | ✅ Working | Tracks per-drone relay count |
+
+---
+
+## 5. Forward Plan
+
+### Phase 3: Precision Landing
+
+- [ ] **Companion Computer Container**: New Docker container running alongside each drone controller for vision processing.
+- [ ] **ArUco Detection Module**: OpenCV-based ArUco marker detection from the downward camera feed.
+- [ ] **Offboard Control via ROS2 uORB**: Precision landing corrections sent through PX4's offboard mode using ROS2 topics.
+- [ ] **Integration with PX4**: Landing state machine that transitions from mission mode → offboard mode → precision land.
+
+### Phase 4: Advanced Fleet Management
+
+- [ ] **Weighted-Sum Drone Scheduling**: Scoring algorithm considering battery level, distance to target, mission count, and drone health to select optimal relay candidates.
+- [ ] **Automated Path Tiling**: Given a rectangular surveillance area, automatically generate efficient lawnmower/zigzag waypoint patterns covering the full zone.
+- [ ] **Obstacle Avoidance**: Integration with Gazebo's sensor plugins (e.g. LiDAR) for basic reactive obstacle avoidance during missions.
+- [ ] **AI Emergency Fail-safes**: ML-based anomaly detection on telemetry streams to predict and prevent failures before they occur.
+
+> [!NOTE]
+> The forward plan phases are independent and can be tackled in parallel. Phase 3 (precision landing) is the most impactful next step as it directly enables the autonomous recharging pad concept for indefinite relay operations.
