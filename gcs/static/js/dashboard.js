@@ -3,6 +3,7 @@
  *
  * Polls fleet telemetry every second, updates DOM, and dispatches
  * control commands to the Flask backend.
+ * Phase 4: Mission mode selector, area drawing, auto-tiling.
  */
 
 // ─── Configuration ─────────────────────────────────────────────────────────
@@ -17,7 +18,15 @@ let map = null;
 let missionWaypoints = [];
 let missionPolyline = null;
 let droneMarkers = {};
-let mapBounds = [[0, 0], [1000, 1000]]; // Arbitrary bounds for image overlay
+let mapBounds = [[0, 0], [1000, 1000]];
+
+// ─── Mission Mode State ────────────────────────────────────────────────────
+
+let missionMode = 'waypoints'; // 'waypoints' | 'rectangle' | 'circle'
+let areaClicks = [];            // Temporary click storage for area definition
+let drawnShape = null;          // Leaflet shape on map (rectangle or circle)
+let previewPolylines = [];      // Array of Leaflet polylines for tiling preview
+let tilingResult = null;        // Cached result from /api/mission/tile
 
 // ─── Custom UI Helpers ─────────────────────────────────────────────────────
 
@@ -35,62 +44,63 @@ document.addEventListener('click', (e) => {
     }
 });
 
-// Accurate coordinate scaling using physical map bounds and flat-earth approximation
+// ─── Coordinate System ─────────────────────────────────────────────────────
+
 const SIM_HOME_LAT = 47.397742;
 const SIM_HOME_LON = 8.545594;
-
-// Physical dimensions from Gazebo and matching UI scale
 const GAZEBO_WORLD_METERS = 4514.0;
 const MAP_BOUNDS_PIXELS = 1000.0;
 const PIXELS_PER_METER = MAP_BOUNDS_PIXELS / GAZEBO_WORLD_METERS;
-
-// Flat earth projection constants (matches Python dashboard)
 const METERS_PER_DEGREE_LAT = 111320.0;
 const METERS_PER_DEGREE_LON = 111320.0 * Math.cos(SIM_HOME_LAT * (Math.PI / 180));
 
-/**
- * Converts Geographic coordinates into Leaflet CRS.Simple map pixel coordinates.
- */
 function geoToPixel(lat, lon) {
-    // 1. Calculate physical meter difference from home origin
     const latDiffMeters = (lat - SIM_HOME_LAT) * METERS_PER_DEGREE_LAT;
     const lonDiffMeters = (lon - SIM_HOME_LON) * METERS_PER_DEGREE_LON;
-
-    // 2. Convert meters to map pixels 
-    // In Leaflet CRS.Simple, Y goes "up", matching Latitude
-    const pixelYDiff = latDiffMeters * PIXELS_PER_METER;
-    const pixelXDiff = lonDiffMeters * PIXELS_PER_METER;
-
-    // 3. Add to the defined center of map bounds (500, 500)
-    const y = 500 + pixelYDiff;
-    const x = 500 + pixelXDiff;
-
+    const y = 500 + latDiffMeters * PIXELS_PER_METER;
+    const x = 500 + lonDiffMeters * PIXELS_PER_METER;
     return [y, x];
 }
 
-/**
- * Converts Leaflet CRS.Simple map clicking pixels back to real Geographic coordinates.
- */
 function pixelToGeo(y, x) {
-    // 1. Calculate pixel difference from map center
-    const pixelYDiff = y - 500;
-    const pixelXDiff = x - 500;
-
-    // 2. Convert map pixels back to physical Gazebo meters
-    const meterYDiff = pixelYDiff / PIXELS_PER_METER;
-    const meterXDiff = pixelXDiff / PIXELS_PER_METER;
-
-    // 3. Reverse projecting meters to degrees, applying to home center
+    const meterYDiff = (y - 500) / PIXELS_PER_METER;
+    const meterXDiff = (x - 500) / PIXELS_PER_METER;
     const lat = SIM_HOME_LAT + (meterYDiff / METERS_PER_DEGREE_LAT);
     const lon = SIM_HOME_LON + (meterXDiff / METERS_PER_DEGREE_LON);
-
     return { lat, lon };
+}
+
+// ─── Mission Mode ──────────────────────────────────────────────────────────
+
+function onMissionModeChange() {
+    missionMode = document.getElementById('mission-mode').value;
+    clearArea();
+    clearMission();
+
+    const waypointCtrl = document.getElementById('waypoint-controls');
+    const tilingCtrl = document.getElementById('tiling-controls');
+    const tilingInputs = document.querySelectorAll('.tiling-only');
+    const areaSpan = document.getElementById('mission-area');
+
+    if (missionMode === 'waypoints') {
+        waypointCtrl.style.display = '';
+        tilingCtrl.style.display = 'none';
+        tilingInputs.forEach(el => el.style.display = 'none');
+        areaSpan.style.display = 'none';
+    } else {
+        waypointCtrl.style.display = 'none';
+        tilingCtrl.style.display = '';
+        tilingInputs.forEach(el => el.style.display = '');
+        areaSpan.style.display = '';
+    }
+
+    const modeLabels = { waypoints: 'Waypoint', rectangle: 'Rectangle', circle: 'Circle' };
+    addConsoleLog(`Mission mode switched to: ${modeLabels[missionMode]}`, 'info');
 }
 
 // ─── Initialization ────────────────────────────────────────────────────────
 
 function initMap() {
-    // Create map with arbitrary CRS for image overlay
     map = L.map('map', {
         crs: L.CRS.Simple,
         center: [500, 500],
@@ -101,11 +111,288 @@ function initMap() {
     L.imageOverlay(imageUrl, mapBounds).addTo(map);
     map.fitBounds(mapBounds);
 
-    // Mission polyline
+    // Mission polyline (for waypoint mode)
     missionPolyline = L.polyline([], { color: '#1E90FF', weight: 3, dashArray: '5, 10' }).addTo(map);
 
     map.on('click', onMapClick);
     addConsoleLog('Map initialized with custom backdrop', 'success');
+}
+
+// ─── Map Click Handler ─────────────────────────────────────────────────────
+
+function onMapClick(e) {
+    const latlng = e.latlng;
+    const geo = pixelToGeo(latlng.lat, latlng.lng);
+
+    if (missionMode === 'waypoints') {
+        // Original manual waypoint mode
+        missionPolyline.addLatLng(latlng);
+        const altInput = parseFloat(document.getElementById('mission-alt').value);
+        missionWaypoints.push({
+            lat: geo.lat,
+            lon: geo.lon,
+            alt: !isNaN(altInput) ? altInput : 10.0
+        });
+        updateMissionStats();
+
+    } else if (missionMode === 'rectangle') {
+        areaClicks.push({ pixel: latlng, geo: geo });
+        if (areaClicks.length === 1) {
+            addConsoleLog('Rectangle: First corner set. Click second corner.', 'info');
+            // Draw a temporary marker
+            L.circleMarker(latlng, { radius: 5, color: '#FF8C00', fillOpacity: 0.8 }).addTo(map);
+        }
+        if (areaClicks.length === 2) {
+            drawRectangle();
+        }
+
+    } else if (missionMode === 'circle') {
+        areaClicks.push({ pixel: latlng, geo: geo });
+        if (areaClicks.length === 1) {
+            addConsoleLog('Circle: Center set. Click edge to define radius.', 'info');
+            L.circleMarker(latlng, { radius: 5, color: '#FF8C00', fillOpacity: 0.8 }).addTo(map);
+        }
+        if (areaClicks.length === 2) {
+            drawCircle();
+        }
+    }
+}
+
+// ─── Area Drawing ──────────────────────────────────────────────────────────
+
+function drawRectangle() {
+    const c1 = areaClicks[0].pixel;
+    const c2 = areaClicks[1].pixel;
+
+    if (drawnShape) map.removeLayer(drawnShape);
+    drawnShape = L.rectangle([c1, c2], {
+        color: '#FF8C00',
+        weight: 2,
+        fillColor: '#FF8C00',
+        fillOpacity: 0.15,
+        dashArray: '6, 4'
+    }).addTo(map);
+
+    // Calculate area
+    const g1 = areaClicks[0].geo;
+    const g2 = areaClicks[1].geo;
+    const dx = Math.abs(g2.lon - g1.lon) * METERS_PER_DEGREE_LON;
+    const dy = Math.abs(g2.lat - g1.lat) * METERS_PER_DEGREE_LAT;
+    const area = dx * dy;
+
+    document.getElementById('mission-area').textContent = `${area.toFixed(0)} m²`;
+    addConsoleLog(`Rectangle drawn: ${dx.toFixed(0)}m × ${dy.toFixed(0)}m = ${area.toFixed(0)} m²`, 'success');
+}
+
+function drawCircle() {
+    const center = areaClicks[0].pixel;
+    const edge = areaClicks[1].pixel;
+
+    // Radius in pixels
+    const dx = edge.lng - center.lng;
+    const dy = edge.lat - center.lat;
+    const radiusPixels = Math.sqrt(dx * dx + dy * dy);
+
+    // Radius in meters
+    const radiusMeters = radiusPixels / PIXELS_PER_METER;
+
+    if (drawnShape) map.removeLayer(drawnShape);
+    drawnShape = L.circle(center, {
+        radius: radiusPixels,  // CRS.Simple uses pixel units
+        color: '#FF8C00',
+        weight: 2,
+        fillColor: '#FF8C00',
+        fillOpacity: 0.15,
+        dashArray: '6, 4'
+    }).addTo(map);
+
+    const area = Math.PI * radiusMeters * radiusMeters;
+    document.getElementById('mission-area').textContent = `${area.toFixed(0)} m²`;
+    addConsoleLog(`Circle drawn: radius=${radiusMeters.toFixed(0)}m, area=${area.toFixed(0)} m²`, 'success');
+}
+
+// ─── Tiling Preview & Upload ───────────────────────────────────────────────
+
+async function generatePreview() {
+    if (areaClicks.length < 2) {
+        addConsoleLog('Draw an area first by clicking 2 points on the map.', 'error');
+        return;
+    }
+
+    const altitude = parseFloat(document.getElementById('mission-alt').value) || 10;
+    const speed = parseFloat(document.getElementById('mission-speed').value) || 5;
+    const sweepWidth = parseFloat(document.getElementById('sweep-width').value) || 20;
+
+    let body = {
+        altitude: altitude,
+        speed: speed,
+        sweep_width: sweepWidth,
+        angle: 0,
+    };
+
+    if (missionMode === 'rectangle') {
+        body.shape = 'rectangle';
+        body.corners = [
+            [areaClicks[0].geo.lat, areaClicks[0].geo.lon],
+            [areaClicks[1].geo.lat, areaClicks[1].geo.lon],
+        ];
+    } else if (missionMode === 'circle') {
+        const g1 = areaClicks[0].geo;
+        const g2 = areaClicks[1].geo;
+        const dx = (g2.lon - g1.lon) * METERS_PER_DEGREE_LON;
+        const dy = (g2.lat - g1.lat) * METERS_PER_DEGREE_LAT;
+        const radiusM = Math.sqrt(dx * dx + dy * dy);
+        body.shape = 'circle';
+        body.center = [g1.lat, g1.lon];
+        body.radius_m = radiusM;
+    }
+
+    addConsoleLog('Generating tiling preview...', 'info');
+
+    try {
+        const resp = await fetch('/api/mission/tile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const result = await resp.json();
+
+        if (!result.success) {
+            addConsoleLog(`✗ Tiling failed: ${result.message}`, 'error');
+            return;
+        }
+
+        tilingResult = result;
+
+        // Clear old previews
+        clearPreviewPolylines();
+
+        // Draw each drone's path in a different color
+        const colors = ['#FF8C00', '#00FFAA', '#FF5577', '#AA88FF'];
+        result.assignments.forEach((assignment, idx) => {
+            const wps = assignment.waypoints;
+            const pixelCoords = wps.map(wp => geoToPixel(wp.lat, wp.lon));
+            const poly = L.polyline(pixelCoords, {
+                color: colors[idx % colors.length],
+                weight: 2,
+                dashArray: '4, 8',
+                opacity: 0.9,
+            }).addTo(map);
+            previewPolylines.push(poly);
+        });
+
+        // Update stats
+        const tilingInfo = document.getElementById('tiling-info');
+        tilingInfo.style.display = '';
+        document.getElementById('tile-area-info').textContent = `Area: ${result.area_m2} m²`;
+        document.getElementById('tile-path-info').textContent = `Path: ${(result.total_distance_m / 1000).toFixed(2)} km (${result.total_waypoints} WPs)`;
+        document.getElementById('tile-drone-info').textContent = result.num_drones > 0
+            ? `Drones: ${result.assignments.map(a => a.drone_id ? `#${a.drone_id}` : '?').join(', ')}`
+            : 'Drones: None available';
+
+        // Also update mission stats
+        document.getElementById('wp-count').textContent = `${result.total_waypoints} WPs`;
+        document.getElementById('mission-dist').textContent = `${(result.total_distance_m / 1000).toFixed(2)} km`;
+
+        // Enable confirm button
+        document.getElementById('btn-confirm-upload').disabled = (result.num_drones === 0);
+
+        addConsoleLog(
+            `✓ Preview: ${result.total_waypoints} WPs, ${(result.total_distance_m / 1000).toFixed(2)} km, ` +
+            `${result.num_drones} drone(s), area=${result.area_m2} m²`,
+            'success'
+        );
+
+    } catch (err) {
+        addConsoleLog(`✗ Tile request failed: ${err.message}`, 'error');
+    }
+}
+
+async function confirmAndUpload() {
+    if (!tilingResult || !tilingResult.assignments) {
+        addConsoleLog('Generate a preview first.', 'error');
+        return;
+    }
+
+    const speed = parseFloat(document.getElementById('mission-speed').value) || 5;
+
+    addConsoleLog(`Uploading tiled missions to ${tilingResult.num_drones} drone(s)...`, 'info');
+
+    for (const assignment of tilingResult.assignments) {
+        if (!assignment.drone_id) continue;
+        const droneId = assignment.drone_id;
+
+        try {
+            // Upload
+            const uploadResp = await fetch(`/api/drone/${droneId}/mission/upload`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    waypoints: assignment.waypoints,
+                    speed: speed,
+                }),
+            });
+            const uploadResult = await uploadResp.json();
+            if (uploadResult.success) {
+                addConsoleLog(`✓ Mission uploaded to Drone ${droneId} (${assignment.waypoints.length} WPs)`, 'success');
+            } else {
+                addConsoleLog(`✗ Drone ${droneId} upload failed: ${uploadResult.message}`, 'error');
+                continue;
+            }
+
+            // Start
+            const startResp = await fetch(`/api/drone/${droneId}/mission/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            const startResult = await startResp.json();
+            if (startResult.success) {
+                addConsoleLog(`✓ Mission started on Drone ${droneId}`, 'success');
+            } else {
+                addConsoleLog(`✗ Drone ${droneId} start failed: ${startResult.message}`, 'error');
+            }
+        } catch (err) {
+            addConsoleLog(`✗ Drone ${droneId} request failed: ${err.message}`, 'error');
+        }
+    }
+}
+
+function pauseTilingMission() {
+    if (!tilingResult || !tilingResult.assignments) return;
+    for (const assignment of tilingResult.assignments) {
+        if (assignment.drone_id) {
+            sendCommand(assignment.drone_id, 'mission/pause');
+        }
+    }
+}
+
+// ─── Clearing ──────────────────────────────────────────────────────────────
+
+function clearPreviewPolylines() {
+    previewPolylines.forEach(p => map.removeLayer(p));
+    previewPolylines = [];
+}
+
+function clearArea() {
+    areaClicks = [];
+    tilingResult = null;
+    if (drawnShape) { map.removeLayer(drawnShape); drawnShape = null; }
+    clearPreviewPolylines();
+    document.getElementById('tiling-info').style.display = 'none';
+    document.getElementById('btn-confirm-upload').disabled = true;
+    document.getElementById('mission-area').textContent = '0 m²';
+    document.getElementById('wp-count').textContent = '0 WPs';
+    document.getElementById('mission-dist').textContent = '0.0 km';
+    // Remove any temporary markers
+    map.eachLayer(layer => {
+        if (layer instanceof L.CircleMarker && !(layer instanceof L.Circle) && !droneMarkers[layer]) {
+            // Only remove orange temp markers, not drone markers
+            if (layer.options && layer.options.color === '#FF8C00') {
+                map.removeLayer(layer);
+            }
+        }
+    });
+    addConsoleLog('Area and preview cleared', 'info');
 }
 
 // ─── Telemetry Polling ─────────────────────────────────────────────────────
@@ -125,13 +412,11 @@ async function pollFleet() {
             if (telem.connected && telem.reachable) connectedCount++;
         }
 
-        // Update header
         document.getElementById('fleet-count').textContent =
             `${connectedCount}/${Object.keys(drones).length}`;
         document.getElementById('last-update').textContent =
             new Date().toLocaleTimeString('en-GB', { hour12: false });
 
-        // Connection indicator
         const dot = document.getElementById('connection-dot');
         dot.classList.toggle('active', connectedCount > 0);
 
@@ -149,23 +434,19 @@ function updateDroneCard(droneId, telem) {
     const connected = telem.connected && telem.reachable;
     card.classList.toggle('connected', connected);
 
-    // Missions Counter
     const missionsSpan = document.getElementById(`drone-${droneId}-missions`);
     if (missionsSpan && telem.nummissions !== undefined) {
         missionsSpan.textContent = telem.nummissions;
     }
 
-    // Connection badge
     const connBadge = document.getElementById(`drone-${droneId}-conn`);
     connBadge.textContent = connected ? 'ONLINE' : (telem.reachable ? 'NO PX4' : 'OFFLINE');
     connBadge.classList.toggle('online', connected);
 
-    // Armed badge
     const armedBadge = document.getElementById(`drone-${droneId}-armed-badge`);
     armedBadge.textContent = telem.armed ? 'ARMED' : 'DISARMED';
     armedBadge.classList.toggle('armed', telem.armed);
 
-    // Telemetry values
     setTelem(droneId, 'lat', connected ? telem.lat?.toFixed(6) + '°' : '--');
     setTelem(droneId, 'lon', connected ? telem.lon?.toFixed(6) + '°' : '--');
     setTelem(droneId, 'alt', connected ? telem.alt?.toFixed(1) + ' m' : '--');
@@ -173,7 +454,6 @@ function updateDroneCard(droneId, telem) {
     setTelem(droneId, 'mode', connected ? telem.flight_mode : '--');
     setTelem(droneId, 'heading', connected ? telem.heading_deg?.toFixed(0) + '°' : '--');
 
-    // Battery
     const batPercent = telem.battery_percent || 0;
     setTelem(droneId, 'battery', connected ? `${batPercent.toFixed(0)}%` : '--');
 
@@ -185,13 +465,11 @@ function updateDroneCard(droneId, telem) {
         else if (batPercent < 30) batBar.classList.add('low');
     }
 
-    // GPS
     const gpsText = connected
         ? `${telem.gps_fix_type} (${telem.gps_num_satellites})`
         : '--';
     setTelem(droneId, 'gps', gpsText);
 
-    // Update Map Marker
     if (connected && telem.lat && telem.lon) {
         updateMapMarker(droneId, telem);
     }
@@ -201,8 +479,6 @@ function updateMapMarker(droneId, telem) {
     if (!map) return;
 
     const pos = geoToPixel(telem.lat, telem.lon);
-
-    // Create colored icon based on drone ID
     const colors = ['#1E90FF', '#00FF85', '#FF6F61', '#9b59b6', '#e67e22'];
     const color = colors[(droneId - 1) % colors.length];
 
@@ -215,14 +491,12 @@ function updateMapMarker(droneId, telem) {
                 ${droneId}
             </div>
         `;
-
         const icon = L.divIcon({
             className: 'custom-drone-icon',
             html: iconHtml,
             iconSize: [16, 16],
             iconAnchor: [8, 8]
         });
-
         droneMarkers[droneId] = L.marker(pos, { icon: icon })
             .bindTooltip(`Drone ${droneId}<br>Alt: ${telem.alt.toFixed(1)}m<br>Bat: ${telem.battery_percent.toFixed(0)}%`)
             .addTo(map);
@@ -260,9 +534,7 @@ async function sendCommand(droneId, action) {
 }
 
 async function sendTakeoff(droneId) {
-    const altitude = prompt('Takeoff altitude (meters):', '5');
-    if (altitude === null) return;
-
+    const altitude = document.getElementById('mission-alt').value;
     const alt = parseFloat(altitude);
     if (isNaN(alt) || alt <= 0 || alt > 100) {
         addConsoleLog('Invalid altitude value', 'error');
@@ -289,27 +561,7 @@ async function sendTakeoff(droneId) {
     }
 }
 
-// ─── Mission Planning ──────────────────────────────────────────────────────
-
-function onMapClick(e) {
-    const latlng = e.latlng;
-
-    // Convert back from pixel space to pseudo-geo coordinates for PX4
-    const geo = pixelToGeo(latlng.lat, latlng.lng);
-
-    // Draw on map using pixel latlng
-    missionPolyline.addLatLng(latlng);
-
-    // Store actual geo coordinates for the drone
-    const altInput = parseFloat(document.getElementById('mission-alt').value);
-    missionWaypoints.push({
-        lat: geo.lat,
-        lon: geo.lon,
-        alt: !isNaN(altInput) ? altInput : 10.0
-    });
-
-    updateMissionStats();
-}
+// ─── Manual Mission Planning (Waypoint Mode) ──────────────────────────────
 
 function updateMissionStats() {
     document.getElementById('wp-count').textContent = `${missionWaypoints.length} WPs`;
@@ -320,11 +572,10 @@ function updateMissionStats() {
     }
 
     let dist = 0;
-    // VERY rough distance estimation (Pythagorean on lat/lon)
     for (let i = 1; i < missionWaypoints.length; i++) {
         const w1 = missionWaypoints[i - 1];
         const w2 = missionWaypoints[i];
-        const dLat = (w2.lat - w1.lat) * 111320; // rough meters per degree lat
+        const dLat = (w2.lat - w1.lat) * 111320;
         const dLon = (w2.lon - w1.lon) * 111320 * Math.cos(w1.lat * (Math.PI / 180));
         dist += Math.sqrt(dLat * dLat + dLon * dLon);
     }
@@ -408,11 +659,8 @@ function addConsoleLog(message, type = 'info') {
     entry.textContent = `[${timestamp}] ${message}`;
 
     consoleEl.appendChild(entry);
-
-    // Auto-scroll to bottom
     consoleEl.scrollTop = consoleEl.scrollHeight;
 
-    // Limit entries
     while (consoleEl.children.length > 300) {
         consoleEl.removeChild(consoleEl.firstChild);
     }

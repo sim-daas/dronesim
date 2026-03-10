@@ -16,6 +16,8 @@ import random
 import traceback
 from datetime import datetime
 
+import math
+
 import requests
 from flask import Flask, jsonify, request, render_template, send_from_directory
 
@@ -248,6 +250,214 @@ def start_mission(drone_id):
 @app.route("/api/drone/<int:drone_id>/mission/pause", methods=["POST"])
 def pause_mission(drone_id):
     return _proxy_command(drone_id, "mission/pause")
+
+
+
+# ─── Tiling Constants ──────────────────────────────────────────────────────────
+
+SIM_HOME_LAT = 47.397742
+SIM_HOME_LON = 8.545594
+METERS_PER_DEG_LAT = 111320.0
+METERS_PER_DEG_LON = 111320.0 * math.cos(math.radians(SIM_HOME_LAT))
+AREA_PER_DRONE_M2 = 700.0  # ~700 m² per drone
+
+
+def _geo_to_meters(lat, lon):
+    """Convert geographic to flat-earth meters relative to SIM_HOME."""
+    return (
+        (lat - SIM_HOME_LAT) * METERS_PER_DEG_LAT,
+        (lon - SIM_HOME_LON) * METERS_PER_DEG_LON,
+    )
+
+
+def _meters_to_geo(my, mx):
+    """Convert flat-earth meters back to geographic."""
+    return (
+        SIM_HOME_LAT + my / METERS_PER_DEG_LAT,
+        SIM_HOME_LON + mx / METERS_PER_DEG_LON,
+    )
+
+
+def _generate_lawnmower(min_x, max_x, min_y, max_y, sweep_width, angle_deg, altitude):
+    """Generate a lawnmower/zigzag path inside a bounding box (in meters)."""
+    # Rotate sweep direction
+    angle_rad = math.radians(angle_deg)
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+
+    # Center of the box
+    cx = (min_x + max_x) / 2.0
+    cy = (min_y + max_y) / 2.0
+
+    # Half-dimensions
+    hw = (max_x - min_x) / 2.0
+    hh = (max_y - min_y) / 2.0
+
+    # Corners of the bounding box
+    corners = [
+        (min_x - cx, min_y - cy),
+        (max_x - cx, min_y - cy),
+        (max_x - cx, max_y - cy),
+        (min_x - cx, max_y - cy),
+    ]
+
+    # Rotate corners to align sweep along the chosen angle
+    rot_corners = []
+    for px, py in corners:
+        rx = px * cos_a + py * sin_a
+        ry = -px * sin_a + py * cos_a
+        rot_corners.append((rx, ry))
+
+    # Find bounding box in rotated space
+    r_min_x = min(c[0] for c in rot_corners)
+    r_max_x = max(c[0] for c in rot_corners)
+    r_min_y = min(c[1] for c in rot_corners)
+    r_max_y = max(c[1] for c in rot_corners)
+
+    # Generate sweep lines in rotated space
+    waypoints_local = []
+    y = r_min_y
+    going_right = True
+    while y <= r_max_y:
+        if going_right:
+            waypoints_local.append((r_min_x, y))
+            waypoints_local.append((r_max_x, y))
+        else:
+            waypoints_local.append((r_max_x, y))
+            waypoints_local.append((r_min_x, y))
+        going_right = not going_right
+        y += sweep_width
+
+    # Rotate back to original frame and translate back
+    waypoints_meters = []
+    for rx, ry in waypoints_local:
+        px = rx * cos_a - ry * sin_a + cx
+        py = rx * sin_a + ry * cos_a + cy
+        waypoints_meters.append((py, px))  # (my, mx) for geo conversion
+
+    # Convert to geo waypoints
+    waypoints = []
+    for my, mx in waypoints_meters:
+        lat, lon = _meters_to_geo(my, mx)
+        waypoints.append({"lat": lat, "lon": lon, "alt": altitude})
+
+    return waypoints
+
+
+def _compute_area(shape, params):
+    """Compute area in m² for the given shape."""
+    if shape == "rectangle":
+        c1, c2 = params["corners"]
+        y1, x1 = _geo_to_meters(c1[0], c1[1])
+        y2, x2 = _geo_to_meters(c2[0], c2[1])
+        return abs(x2 - x1) * abs(y2 - y1)
+    elif shape == "circle":
+        center = params["center"]
+        radius_m = params["radius_m"]
+        return math.pi * radius_m * radius_m
+    return 0.0
+
+
+def _path_distance(waypoints):
+    """Compute total path distance in meters."""
+    total = 0.0
+    for i in range(1, len(waypoints)):
+        w1, w2 = waypoints[i - 1], waypoints[i]
+        dy = (w2["lat"] - w1["lat"]) * METERS_PER_DEG_LAT
+        dx = (w2["lon"] - w1["lon"]) * METERS_PER_DEG_LON
+        total += math.sqrt(dx * dx + dy * dy)
+    return total
+
+
+@app.route("/api/mission/tile", methods=["POST"])
+def generate_tile():
+    """Generate lawnmower tiling path for a given area, auto-assign drones."""
+    payload = request.get_json(silent=True) or {}
+    shape = payload.get("shape", "rectangle")
+    sweep_width = float(payload.get("sweep_width", 20))
+    angle = float(payload.get("angle", 0))
+    altitude = float(payload.get("altitude", 10))
+    speed = float(payload.get("speed", 5))
+
+    # Compute bounding box in meters
+    if shape == "rectangle":
+        corners = payload.get("corners", [])
+        if len(corners) < 2:
+            return jsonify({"success": False, "message": "Need 2 corners"}), 400
+        y1, x1 = _geo_to_meters(corners[0][0], corners[0][1])
+        y2, x2 = _geo_to_meters(corners[1][0], corners[1][1])
+        min_x, max_x = min(x1, x2), max(x1, x2)
+        min_y, max_y = min(y1, y2), max(y1, y2)
+    elif shape == "circle":
+        center = payload.get("center", [SIM_HOME_LAT, SIM_HOME_LON])
+        radius_m = float(payload.get("radius_m", 20))
+        cy, cx = _geo_to_meters(center[0], center[1])
+        min_x, max_x = cx - radius_m, cx + radius_m
+        min_y, max_y = cy - radius_m, cy + radius_m
+    else:
+        return jsonify({"success": False, "message": f"Unknown shape: {shape}"}), 400
+
+    # Compute area
+    area_m2 = _compute_area(shape, payload)
+
+    # Generate full path
+    all_wps = _generate_lawnmower(min_x, max_x, min_y, max_y, sweep_width, angle, altitude)
+
+    if not all_wps:
+        return jsonify({"success": False, "message": "No waypoints generated (area too small?)"}), 400
+
+    # Auto-assign drones based on area
+    num_drones_needed = max(1, min(3, math.ceil(area_m2 / AREA_PER_DRONE_M2)))
+
+    # Find available drones (connected, not armed, lowest mission count)
+    candidates = []
+    with fleet_lock:
+        for did, telem in fleet_telemetry.items():
+            if telem.get("connected") and telem.get("reachable") and not telem.get("armed"):
+                candidates.append((fleet_state[did]["nummissions"], did))
+
+    candidates.sort()  # Sort by mission count ascending
+    selected = [did for _, did in candidates[:num_drones_needed]]
+
+    if not selected:
+        # Fall back: just return the path without assignment
+        add_gcs_log(f"⚠ No idle drones available. Generated {len(all_wps)} waypoints for manual assignment.")
+        return jsonify({
+            "success": True,
+            "assignments": [{"drone_id": None, "waypoints": all_wps}],
+            "total_waypoints": len(all_wps),
+            "total_distance_m": round(_path_distance(all_wps), 1),
+            "area_m2": round(area_m2, 1),
+            "num_drones": 0,
+            "speed": speed,
+        })
+
+    # Split waypoints among selected drones
+    assignments = []
+    chunk_size = max(1, len(all_wps) // len(selected))
+    for i, did in enumerate(selected):
+        start = i * chunk_size
+        end = (i + 1) * chunk_size if i < len(selected) - 1 else len(all_wps)
+        segment = all_wps[start:end]
+        assignments.append({"drone_id": did, "waypoints": segment})
+
+    total_dist = _path_distance(all_wps)
+
+    add_gcs_log(
+        f"✓ Tiling: {shape} area={area_m2:.0f}m² → {len(all_wps)} WPs, "
+        f"{len(selected)} drone(s) [{', '.join(str(d) for d in selected)}], "
+        f"dist={total_dist:.0f}m"
+    )
+
+    return jsonify({
+        "success": True,
+        "assignments": assignments,
+        "total_waypoints": len(all_wps),
+        "total_distance_m": round(total_dist, 1),
+        "area_m2": round(area_m2, 1),
+        "num_drones": len(selected),
+        "speed": speed,
+    })
 
 
 @app.route("/api/logs", methods=["GET"])

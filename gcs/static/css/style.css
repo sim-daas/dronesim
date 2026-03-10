@@ -158,7 +158,7 @@ body {
 .bottom-panels {
     display: flex;
     gap: 16px;
-    height: 160px;
+    height: 260px;
     flex-shrink: 0;
 }
 
@@ -209,7 +209,7 @@ body {
 
 .mission-inputs {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 12px;
     margin-bottom: 12px;
 }
@@ -264,6 +264,170 @@ body {
 
 .drone-select:focus {
     border-color: var(--accent);
+}
+
+/* ─── Mission Mode Row ─────────────────────────────────────────────────── */
+.mission-mode-row {
+    margin-bottom: 8px;
+}
+
+.mission-mode-row select {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--primary-text);
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-family: var(--font-family);
+    font-size: 0.8rem;
+    outline: none;
+    cursor: pointer;
+}
+
+.mission-mode-row select:focus {
+    border-color: var(--accent);
+}
+
+/* ─── Slider Inputs ────────────────────────────────────────────────────── */
+.slider-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.slider-group input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    background: var(--divider);
+    border-radius: 2px;
+    outline: none;
+    border: none;
+    padding: 0;
+}
+
+.slider-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 4px rgba(30, 144, 255, 0.5);
+    transition: transform 0.15s ease;
+}
+
+.slider-group input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+.slider-group input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 4px rgba(30, 144, 255, 0.5);
+}
+
+/* ─── Tiling Info Bar ──────────────────────────────────────────────────── */
+.tiling-info {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 6px 8px;
+    background: rgba(255, 140, 0, 0.08);
+    border: 1px solid rgba(255, 140, 0, 0.2);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.tiling-info span {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #FF8C00;
+    white-space: nowrap;
+}
+
+/* ─── Tiling Controls ──────────────────────────────────────────────────── */
+.tiling-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+.waypoint-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+/* ─── Custom Multi-Select Dropdown ─────────────────────────────────────── */
+.custom-multi-select {
+    position: relative;
+    min-width: 120px;
+}
+
+.select-box {
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--primary-text);
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-family: var(--font-family);
+    font-size: 0.75rem;
+    cursor: pointer;
+    user-select: none;
+    text-align: center;
+}
+
+.select-box:hover {
+    border-color: var(--accent);
+}
+
+.select-options {
+    display: none;
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+    padding: 6px;
+    z-index: 50;
+    margin-bottom: 4px;
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.select-options.open {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.select-options label {
+    font-size: 0.75rem;
+    color: var(--primary-text);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 4px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.select-options label:hover {
+    background: var(--hover);
+}
+
+.btn-warning {
+    background: var(--orange);
 }
 
 .btn-secondary {

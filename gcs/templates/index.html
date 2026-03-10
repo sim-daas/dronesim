@@ -49,40 +49,75 @@
                         <div class="mission-stats">
                             <span id="wp-count">0 WPs</span>
                             <span id="mission-dist">0.0 km</span>
+                            <span id="mission-area" style="display:none;">0 m²</span>
                         </div>
                     </div>
 
+                    <!-- Mission Mode Selector -->
+                    <div class="mission-mode-row">
+                        <div class="input-group">
+                            <label>Mission Mode</label>
+                            <select id="mission-mode" onchange="onMissionModeChange()">
+                                <option value="waypoints">Waypoints (Manual)</option>
+                                <option value="rectangle">Rectangle Area</option>
+                                <option value="circle">Circle Area</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Slider Inputs -->
                     <div class="mission-inputs">
-                        <div class="input-group">
-                            <label>Altitude (m)</label>
-                            <input type="number" id="mission-alt" value="10" min="1">
+                        <div class="input-group slider-group">
+                            <label>Altitude: <span id="alt-val">10</span> m</label>
+                            <input type="range" id="mission-alt" value="10" min="3" max="50" step="1"
+                                oninput="document.getElementById('alt-val').textContent=this.value">
                         </div>
-                        <div class="input-group">
-                            <label>Speed (m/s)</label>
-                            <input type="number" id="mission-speed" value="5" min="1">
+                        <div class="input-group slider-group">
+                            <label>Speed: <span id="speed-val">5</span> m/s</label>
+                            <input type="range" id="mission-speed" value="5" min="1" max="15" step="0.5"
+                                oninput="document.getElementById('speed-val').textContent=this.value">
                         </div>
+                        <div class="input-group slider-group tiling-only" style="display:none;">
+                            <label>Sweep: <span id="sweep-val">20</span> m</label>
+                            <input type="range" id="sweep-width" value="20" min="5" max="50" step="1"
+                                oninput="document.getElementById('sweep-val').textContent=this.value">
+                        </div>
+                    </div>
+
+                    <!-- Tiling Info (shown after Generate) -->
+                    <div id="tiling-info" class="tiling-info" style="display:none;">
+                        <span id="tile-area-info">Area: --</span>
+                        <span id="tile-path-info">Path: --</span>
+                        <span id="tile-drone-info">Drones: --</span>
                     </div>
 
                     <div class="mission-controls">
-                        <div class="custom-multi-select">
-                            <div class="select-box" onclick="toggleDroneSelect()" id="drone-select-box">
-                                Select Drones ▼
+                        <!-- Waypoint mode controls -->
+                        <div id="waypoint-controls" class="waypoint-controls">
+                            <div class="custom-multi-select">
+                                <div class="select-box" onclick="toggleDroneSelect()" id="drone-select-box">
+                                    Select Drones ▼
+                                </div>
+                                <div class="select-options" id="drone-select-options">
+                                    {% for i in range(1, num_drones + 1) %}
+                                    <label><input type="checkbox" value="{{ i }}" class="drone-cb"> Drone {{ i }}</label>
+                                    {% endfor %}
+                                </div>
                             </div>
-                            <div class="select-options" id="drone-select-options">
-                                {% for i in range(1, num_drones + 1) %}
-                                <label><input type="checkbox" value="{{ i }}" class="drone-cb"> Drone {{ i }}</label>
-                                {% endfor %}
+                            <button class="btn btn-secondary" onclick="clearMission()" title="Clear dropped waypoints">CLEAR WPs</button>
+                            <button class="btn btn-accent" onclick="uploadMission()" title="Upload to selected drone">UPLOAD</button>
+                            <div class="mission-action-buttons">
+                                <button class="btn btn-takeoff" onclick="startMission()" title="Start mission execution">START</button>
+                                <button class="btn btn-warning" onclick="pauseMission()" title="Pause mission execution">PAUSE</button>
                             </div>
                         </div>
-                        <button class="btn btn-secondary" onclick="clearMission()" title="Clear dropped waypoints">CLEAR
-                            WPs</button>
-                        <button class="btn btn-accent" onclick="uploadMission()" style="width: 100%;"
-                            title="Upload to selected drone">UPLOAD</button>
-                        <div class="mission-action-buttons">
-                            <button class="btn btn-takeoff" onclick="startMission()"
-                                title="Start mission execution">START</button>
-                            <button class="btn btn-warning" onclick="pauseMission()"
-                                title="Pause mission execution">PAUSE</button>
+
+                        <!-- Tiling mode controls -->
+                        <div id="tiling-controls" class="tiling-controls" style="display:none;">
+                            <button class="btn btn-secondary" onclick="clearArea()" title="Clear drawn area">CLEAR AREA</button>
+                            <button class="btn btn-accent" onclick="generatePreview()" title="Generate tiling preview">GENERATE PREVIEW</button>
+                            <button class="btn btn-takeoff" onclick="confirmAndUpload()" id="btn-confirm-upload" title="Upload to auto-assigned drones" disabled>CONFIRM & UPLOAD</button>
+                            <button class="btn btn-warning" onclick="pauseTilingMission()" title="Pause all tiled missions">PAUSE</button>
                         </div>
                     </div>
                 </div>
@@ -163,7 +198,7 @@
                     <button class="btn btn-disarm" onclick="sendCommand('{{ i }}', 'disarm')"
                         title="Disarm motors">DISARM</button>
                     <button class="btn btn-takeoff" onclick="sendTakeoff('{{ i }}')"
-                        title="Takeoff to 5m">TAKEOFF</button>
+                        title="Takeoff to altitude">TAKEOFF</button>
                     <button class="btn btn-land" onclick="sendCommand('{{ i }}', 'land')"
                         title="Land at current position">LAND</button>
                     <button class="btn btn-rtl" onclick="sendCommand('{{ i }}', 'rtl')"
@@ -172,9 +207,6 @@
             </div>
             {% endfor %}
         </main>
-    </div>
-
-    </main>
     </div>
 
     <script src="/static/js/dashboard.js"></script>
