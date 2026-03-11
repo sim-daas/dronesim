@@ -46,25 +46,42 @@ document.addEventListener('click', (e) => {
 
 // ─── Coordinate System ─────────────────────────────────────────────────────
 
-const SIM_HOME_LAT = 47.397742;
-const SIM_HOME_LON = 8.545594;
-const GAZEBO_WORLD_METERS = 4514.0;
+// Center of the Gazebo world (0,0) as defined in default.sdf
+const GAZEBO_ORIGIN_LAT = 47.397971057728974;
+const GAZEBO_ORIGIN_LON = 8.546163739800146;
+
+// The ground image (heightmap) is offset from Gazebo (0,0) by this pose in model.sdf:
+// <pose>141.97 -141.17 -137.94 0 0 0</pose> -> Image Center is at X=141.97, Y=-141.17.
+// Knowing this offset properly maps the center of our Leaflet image to the correct GPS origin.
+const MAP_OFFSET_X = 141.97;
+const MAP_OFFSET_Y = -141.17;
+
+// Actual Map Dimensions from heightmap <size>4827.54 4798.95 294.4</size>
+// This ensures pixel-to-meter scaling is correct.
+const GAZEBO_WORLD_METERS_X = 4827.54;
+const GAZEBO_WORLD_METERS_Y = 4798.95;
+
 const MAP_BOUNDS_PIXELS = 1000.0;
-const PIXELS_PER_METER = MAP_BOUNDS_PIXELS / GAZEBO_WORLD_METERS;
+const PIXELS_PER_METER_X = MAP_BOUNDS_PIXELS / GAZEBO_WORLD_METERS_X;
+const PIXELS_PER_METER_Y = MAP_BOUNDS_PIXELS / GAZEBO_WORLD_METERS_Y;
+
 const METERS_PER_DEGREE_LAT = 111320.0;
+// We calculate the map center coordinates to anchor our Leaflet image at 500,500
+const SIM_HOME_LAT = GAZEBO_ORIGIN_LAT + (MAP_OFFSET_Y / METERS_PER_DEGREE_LAT);
 const METERS_PER_DEGREE_LON = 111320.0 * Math.cos(SIM_HOME_LAT * (Math.PI / 180));
+const SIM_HOME_LON = GAZEBO_ORIGIN_LON + (MAP_OFFSET_X / METERS_PER_DEGREE_LON);
 
 function geoToPixel(lat, lon) {
     const latDiffMeters = (lat - SIM_HOME_LAT) * METERS_PER_DEGREE_LAT;
     const lonDiffMeters = (lon - SIM_HOME_LON) * METERS_PER_DEGREE_LON;
-    const y = 500 + latDiffMeters * PIXELS_PER_METER;
-    const x = 500 + lonDiffMeters * PIXELS_PER_METER;
+    const y = 500 + latDiffMeters * PIXELS_PER_METER_Y;
+    const x = 500 + lonDiffMeters * PIXELS_PER_METER_X;
     return [y, x];
 }
 
 function pixelToGeo(y, x) {
-    const meterYDiff = (y - 500) / PIXELS_PER_METER;
-    const meterXDiff = (x - 500) / PIXELS_PER_METER;
+    const meterYDiff = (y - 500) / PIXELS_PER_METER_Y;
+    const meterXDiff = (x - 500) / PIXELS_PER_METER_X;
     const lat = SIM_HOME_LAT + (meterYDiff / METERS_PER_DEGREE_LAT);
     const lon = SIM_HOME_LON + (meterXDiff / METERS_PER_DEGREE_LON);
     return { lat, lon };
@@ -194,7 +211,7 @@ function drawCircle() {
     const radiusPixels = Math.sqrt(dx * dx + dy * dy);
 
     // Radius in meters
-    const radiusMeters = radiusPixels / PIXELS_PER_METER;
+    const radiusMeters = radiusPixels / ((PIXELS_PER_METER_X + PIXELS_PER_METER_Y) / 2);
 
     if (drawnShape) map.removeLayer(drawnShape);
     drawnShape = L.circle(center, {
