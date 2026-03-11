@@ -56,19 +56,19 @@ const GAZEBO_ORIGIN_LON = 8.546163739800146;
 const MAP_OFFSET_X = 141.97;
 const MAP_OFFSET_Y = -141.17;
 
-// Actual Map Dimensions from heightmap <size>4827.54 4798.95 294.4</size>
-// This ensures pixel-to-meter scaling is correct.
-const GAZEBO_WORLD_METERS_X = 4827.54;
-const GAZEBO_WORLD_METERS_Y = 4798.95;
+// Actual Map Dimensions. Using 4514.0 for the true orthophoto square scaling
+const GAZEBO_WORLD_METERS_X = 4514.0;
+const GAZEBO_WORLD_METERS_Y = 4514.0;
 
 const MAP_BOUNDS_PIXELS = 1000.0;
 const PIXELS_PER_METER_X = MAP_BOUNDS_PIXELS / GAZEBO_WORLD_METERS_X;
 const PIXELS_PER_METER_Y = MAP_BOUNDS_PIXELS / GAZEBO_WORLD_METERS_Y;
 
-const METERS_PER_DEGREE_LAT = 111320.0;
+// PX4 uses exactly R=6371000 for local WGS84 Cartesian projections
+const METERS_PER_DEGREE_LAT = 111194.9266;
 // We calculate the map center coordinates to anchor our Leaflet image at 500,500
 const SIM_HOME_LAT = GAZEBO_ORIGIN_LAT + (MAP_OFFSET_Y / METERS_PER_DEGREE_LAT);
-const METERS_PER_DEGREE_LON = 111320.0 * Math.cos(SIM_HOME_LAT * (Math.PI / 180));
+const METERS_PER_DEGREE_LON = 111194.9266 * Math.cos(SIM_HOME_LAT * (Math.PI / 180));
 const SIM_HOME_LON = GAZEBO_ORIGIN_LON + (MAP_OFFSET_X / METERS_PER_DEGREE_LON);
 
 function geoToPixel(lat, lon) {
